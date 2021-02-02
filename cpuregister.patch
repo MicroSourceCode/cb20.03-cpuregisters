@@ -1,0 +1,1843 @@
+diff -ruN src/cpuregistersdlg.cpp src-new/cpuregistersdlg.cpp
+--- src/cpuregistersdlg.cpp	2020-03-28 15:36:04.000000000 +0300
++++ src-new/cpuregistersdlg.cpp	2021-02-02 21:13:22.962817477 +0300
+@@ -13,6 +13,52 @@
+ #include <wx/intl.h>
+ #include <wx/sizer.h>
+ #include <wx/listctrl.h>
++#include <stdlib.h>
++#include <stdio.h>
++#include "RegisterDlg.h"
++#include <sdk.h>
++
++//include <iostream>
++//#include <sstream>
++//#include <bitset>
++//#include <string>
++
++#include "compiler.h"
++#include "compilerfactory.h"
++#include <cbexception.h>
++#include <configmanager.h>
++#include <manager.h>
++#include <projectmanager.h>
++
++#include "debuggermanager.h"
++#include "cbdebugger_interfaces.h"
++#include "cbeditor.h"
++#include "cbplugin.h"
++#include "cbproject.h"
++#include "editormanager.h"
++
++void dec2bin(char * str, int convnum, unsigned base) //or bitset alternative...
++{
++	int convertedNumber[base];
++	int i, p;
++	
++	for (int i = 0; i < base; i++)
++	{
++		convertedNumber[i] = convnum % 2;
++		convnum = convnum / 2;
++	}
++	
++	for (i = base - 1, p = 0; i >= 0; i--, p++)
++	{
++		if (convertedNumber[i])
++			str[p] = '1';
++		else 
++			str[p] = '0';
++	}
++}
++
++const long CPURegistersDlg::ID_LISTCTRL1 = wxNewId();
++bool getifcomp = false;
+ 
+ BEGIN_EVENT_TABLE(CPURegistersDlg, wxPanel)
+ //    EVT_BUTTON(XRCID("btnRefresh"), CPURegistersDlg::OnRefresh)
+@@ -29,18 +75,64 @@
+ 
+     wxFont font(8, wxFONTFAMILY_MODERN, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL);
+     m_pList->SetFont(font);
++    Connect(ID_LISTCTRL1,wxEVT_COMMAND_LIST_ITEM_ACTIVATED,(wxObjectEventFunction)&CPURegistersDlg::OnListCtrl1ItemActivated);
+ 
+     Clear();
+ }
+ 
++void CPURegistersDlg::GetCompiler()
++{
++	int compind = 0;
++        wxString strS = "";
++        ProjectManager* projectMgr = Manager::Get()->GetProjectManager();
++        cbProject* project = projectMgr->GetActiveProject();
++        ProjectBuildTarget *target = nullptr;
++        if (project)
++        {
++            const wxString &targetName = project->GetActiveBuildTarget();
++            if (project->BuildTargetValid(targetName))
++                target = project->GetBuildTarget(targetName);
++        }
++
++        if (!target)
++        {
++            if (project)
++            {
++              compind = CompilerFactory::GetCompilerIndex(project->GetCompilerID());
++	      strS = CompilerFactory::GetCompiler(compind)->GetName();
++	    }
++	}
++	else
++	{
++	    compind = CompilerFactory::GetCompilerIndex(target->GetCompilerID());
++	    strS = CompilerFactory::GetCompiler(compind)->GetName();
++	}
++	if ( strS.Lower().Contains(_("avr")) )
++	    cyrcomp = AVR;
++	else if ( strS.Lower().Contains(_("arm")) )
++	        cyrcomp = ARM;
++	else
++	    cyrcomp = PC;
++}
++
++
+ void CPURegistersDlg::Clear()
+ {
++    //DeleteAllColumns();
++    m_pList->DeleteAllColumns();
+     m_pList->ClearAll();
+     m_pList->Freeze();
+     m_pList->DeleteAllItems();
+-    m_pList->InsertColumn(0, _("Register"), wxLIST_FORMAT_LEFT);
++    m_pList->InsertColumn(0, _("Rg"), wxLIST_FORMAT_LEFT);
+     m_pList->InsertColumn(1, _("Hex"), wxLIST_FORMAT_RIGHT);
+     m_pList->InsertColumn(2, _("Interpreted"), wxLIST_FORMAT_LEFT);
++    if (( cyrcomp == AVR ) || ( cyrcomp == ARM )) //avr or arm
++    {
++        m_pList->DeleteColumn(2);
++	m_pList->InsertColumn(2, _("Bin"), wxLIST_FORMAT_LEFT);
++	m_pList->InsertColumn(3, _("Interpreted"), wxLIST_FORMAT_LEFT);
++    }
++
+     m_pList->Thaw();
+ }
+ 
+@@ -56,6 +148,16 @@
+ 
+ void CPURegistersDlg::SetRegisterValue(const wxString& reg_name, const wxString& hexValue, const wxString& interpreted)
+ {
++
++    if (getifcomp)   //or timer?
++    {
++	GetCompiler();
++	Clear();
++	getifcomp = false;
++    }
++
++     int i2;
++
+     // find existing register
+     int idx = RegisterIndex(reg_name);
+     if (idx == -1)
+@@ -66,7 +168,25 @@
+     }
+ 
+     m_pList->SetItem(idx, 1, hexValue);
+-    m_pList->SetItem(idx, 2, interpreted);
++
++    if (cyrcomp == AVR)
++    {
++		char buf[8];
++		if (reg_name.Lower().Contains(_("pc")) || reg_name.Lower().Contains(_("sp")) )
++			 for (int i = 0; i < 8; i++)
++				 buf[i] = '-';
++		else
++			dec2bin(buf, wxAtoi(interpreted), 8);
++		buf[8] = '\0';
++		m_pList->SetItem(idx, 2, wxString(buf));
++		m_pList->SetItem(idx, 3, interpreted);
++		i2 = 4;
++    }
++    else
++    {
++		m_pList->SetItem(idx, 2, interpreted);
++		i2 = 3;
++    }
+ 
+ #if defined(__WXMSW__) || wxCHECK_VERSION(3, 1, 0)
+     const int autoSizeMode = wxLIST_AUTOSIZE_USEHEADER;
+@@ -74,7 +194,7 @@
+     const int autoSizeMode = wxLIST_AUTOSIZE;
+ #endif
+ 
+-    for (int i = 0; i < 3; ++i)
++    for (int i = 0; i < i2; ++i)
+     {
+         m_pList->SetColumnWidth(i, autoSizeMode);
+     }
+@@ -83,4 +203,38 @@
+ void CPURegistersDlg::EnableWindow(bool enable)
+ {
+     m_pList->Enable(enable);
++    if (enable)
++    {
++        getifcomp = true;
++//	GetCompiler();
++//	Clear();
++    }
++}
++
++
++void CPURegistersDlg::OnListCtrl1ItemActivated(wxListEvent& event)
++{
++
++if ( cyrcomp == AVR || cyrcomp == ARM )
++{
++      unsigned snum;
++      if (cyrcomp == AVR)
++          snum = 8;
++      else
++          snum = 32;
++
++    long itemIndex = -1;
++
++      while ((itemIndex = m_pList->GetNextItem(itemIndex,
++          wxLIST_NEXT_ALL, wxLIST_STATE_SELECTED)) != wxNOT_FOUND)
++     {
++		if ( (m_pList->GetItemText(itemIndex).GetChar(0) == 'r') || (m_pList->GetItemText(itemIndex).Lower().Contains(_("sreg")))  )
++		{
++			wxDialog * dconv;
++			dconv = new RegisterDlg(this, snum, m_pList->GetItemText(itemIndex), m_pList->GetItemText(itemIndex, 1));
++			dconv->ShowModal();
++			dconv->Destroy();
++		}
++     }
++}
+ }
+diff -ruN src/cpuregistersdlg.h src-new/cpuregistersdlg.h
+--- src/cpuregistersdlg.h	2020-03-28 15:36:04.000000000 +0300
++++ src-new/cpuregistersdlg.h	2021-01-12 22:06:18.000000000 +0300
+@@ -9,6 +9,7 @@
+ #include <wx/panel.h>
+ #include <cbdebugger_interfaces.h>
+ 
++enum CYRCOMPILER { AVR, ARM, PC };
+ class wxListCtrl;
+ 
+ class CPURegistersDlg : public wxPanel, public cbCPURegistersDlg
+@@ -19,6 +20,7 @@
+         wxWindow* GetWindow() { return this; }
+ 
+         void Clear();
++	void GetCompiler();
+         void SetRegisterValue(const wxString& reg_name, const wxString& hexValue, const wxString& interpreted);
+         void EnableWindow(bool enable);
+     protected:
+@@ -26,8 +28,12 @@
+         void OnRefresh(wxCommandEvent& event);
+ 
+     private:
++        void OnListCtrl1ItemActivated(wxListEvent& event);
+         DECLARE_EVENT_TABLE();
+     private:
++	CYRCOMPILER cyrcomp = PC;
++	bool tprocessor = false;
++        static const long ID_LISTCTRL1;
+         wxListCtrl* m_pList;
+ };
+ 
+diff -ruN src/Makefile.am src-new/Makefile.am
+--- src/Makefile.am	2020-03-28 15:36:04.000000000 +0300
++++ src-new/Makefile.am	2021-01-03 22:35:03.000000000 +0300
+@@ -42,6 +42,7 @@
+ 			breakpointsdlg.cpp \
+ 			compilersettingsdlg.cpp \
+ 			cpuregistersdlg.cpp \
++			RegisterDlg.cpp \
+ 			crashhandler.cpp \
+ 			debugger_interface_creator.cpp \
+ 			debuggermenu.cpp \
+@@ -82,6 +83,7 @@
+ 			breakpointsdlg.h \
+ 			compilersettingsdlg.h \
+ 			cpuregistersdlg.h \
++			RegisterDlg.h \
+ 			crashhandler.h \
+ 			debugger_interface_creator.h \
+ 			debuggermenu.h \
+diff -ruN src/Makefile.in src-new/Makefile.in
+--- src/Makefile.in	2020-03-28 17:04:11.000000000 +0300
++++ src-new/Makefile.in	2021-02-02 20:54:30.657082548 +0300
+@@ -114,8 +114,9 @@
+ am_codeblocks_OBJECTS = app.$(OBJEXT) appglobals.$(OBJEXT) \
+ 	backtracedlg.$(OBJEXT) breakpointsdlg.$(OBJEXT) \
+ 	compilersettingsdlg.$(OBJEXT) cpuregistersdlg.$(OBJEXT) \
+-	crashhandler.$(OBJEXT) debugger_interface_creator.$(OBJEXT) \
+-	debuggermenu.$(OBJEXT) debuggersettingscommonpanel.$(OBJEXT) \
++	RegisterDlg.$(OBJEXT) crashhandler.$(OBJEXT) \
++	debugger_interface_creator.$(OBJEXT) debuggermenu.$(OBJEXT) \
++	debuggersettingscommonpanel.$(OBJEXT) \
+ 	debuggersettingsdlg.$(OBJEXT) debuggersettingspanel.$(OBJEXT) \
+ 	disassemblydlg.$(OBJEXT) dlgabout.$(OBJEXT) \
+ 	dlgaboutplugin.$(OBJEXT) editkeywordsdlg.$(OBJEXT) \
+@@ -153,8 +154,9 @@
+ DEFAULT_INCLUDES = -I.@am__isrc@ -I$(top_builddir)/src/include
+ depcomp = $(SHELL) $(top_srcdir)/depcomp
+ am__maybe_remake_depfiles = depfiles
+-am__depfiles_remade = ./$(DEPDIR)/app.Po ./$(DEPDIR)/appglobals.Po \
+-	./$(DEPDIR)/backtracedlg.Po ./$(DEPDIR)/breakpointsdlg.Po \
++am__depfiles_remade = ./$(DEPDIR)/RegisterDlg.Po ./$(DEPDIR)/app.Po \
++	./$(DEPDIR)/appglobals.Po ./$(DEPDIR)/backtracedlg.Po \
++	./$(DEPDIR)/breakpointsdlg.Po \
+ 	./$(DEPDIR)/compilersettingsdlg.Po \
+ 	./$(DEPDIR)/cpuregistersdlg.Po ./$(DEPDIR)/crashhandler.Po \
+ 	./$(DEPDIR)/debugger_interface_creator.Po \
+@@ -573,6 +575,7 @@
+ 			breakpointsdlg.cpp \
+ 			compilersettingsdlg.cpp \
+ 			cpuregistersdlg.cpp \
++			RegisterDlg.cpp \
+ 			crashhandler.cpp \
+ 			debugger_interface_creator.cpp \
+ 			debuggermenu.cpp \
+@@ -613,6 +616,7 @@
+ 			breakpointsdlg.h \
+ 			compilersettingsdlg.h \
+ 			cpuregistersdlg.h \
++			RegisterDlg.h \
+ 			crashhandler.h \
+ 			debugger_interface_creator.h \
+ 			debuggermenu.h \
+@@ -746,6 +750,7 @@
+ distclean-compile:
+ 	-rm -f *.tab.c
+ 
++@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/RegisterDlg.Po@am__quote@ # am--include-marker
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/app.Po@am__quote@ # am--include-marker
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/appglobals.Po@am__quote@ # am--include-marker
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/backtracedlg.Po@am__quote@ # am--include-marker
+@@ -1064,7 +1069,8 @@
+ clean-am: clean-binPROGRAMS clean-generic clean-libtool mostlyclean-am
+ 
+ distclean: distclean-recursive
+-		-rm -f ./$(DEPDIR)/app.Po
++		-rm -f ./$(DEPDIR)/RegisterDlg.Po
++	-rm -f ./$(DEPDIR)/app.Po
+ 	-rm -f ./$(DEPDIR)/appglobals.Po
+ 	-rm -f ./$(DEPDIR)/backtracedlg.Po
+ 	-rm -f ./$(DEPDIR)/breakpointsdlg.Po
+@@ -1148,7 +1154,8 @@
+ installcheck-am:
+ 
+ maintainer-clean: maintainer-clean-recursive
+-		-rm -f ./$(DEPDIR)/app.Po
++		-rm -f ./$(DEPDIR)/RegisterDlg.Po
++	-rm -f ./$(DEPDIR)/app.Po
+ 	-rm -f ./$(DEPDIR)/appglobals.Po
+ 	-rm -f ./$(DEPDIR)/backtracedlg.Po
+ 	-rm -f ./$(DEPDIR)/breakpointsdlg.Po
+diff -ruN src/RegisterDlg.cpp src-new/RegisterDlg.cpp
+--- src/RegisterDlg.cpp	1970-01-01 03:00:00.000000000 +0300
++++ src-new/RegisterDlg.cpp	2021-02-02 19:14:49.000000000 +0300
+@@ -0,0 +1,223 @@
++#include "RegisterDlg.h"
++
++#include <iostream>
++#include <sstream>
++#include <bitset>
++#include <string>
++
++//(*InternalHeaders(RegisterDlg)
++#include <wx/xrc/xmlres.h>
++//*)
++
++//(*IdInit(RegisterDlg)
++//*)
++
++#include "debuggermanager.h"
++#include "cbdebugger_interfaces.h"
++//#include "loggers.h"
++#include "manager.h"
++#include "cbexception.h"
++#include "cbplugin.h"
++#include "cbproject.h"
++//#include "compilerfactory.h"
++//#include "configmanager.h"
++//#include "projectmanager.h"
++
++
++
++
++BEGIN_EVENT_TABLE(RegisterDlg,wxDialog)
++	//(*EventTable(RegisterDlg)
++	//*)
++END_EVENT_TABLE()
++
++
++
++RegisterDlg::RegisterDlg(wxWindow* parent, unsigned numbase, wxString namereg, wxString valreg) : m_valreg(valreg), m_namereg(namereg), m_numbase(numbase)
++{
++	//(*Initialize(RegisterDlg)
++	wxXmlResource::Get()->LoadObject(this,parent,_T("RegisterDlg"),_T("wxDialog"));
++	TextRg = (wxStaticText*)FindWindow(XRCID("ID_STATICTEXT1"));
++	TextRgVal = (wxStaticText*)FindWindow(XRCID("ID_STATICTEXT2"));
++	RadioBox1 = (wxRadioBox*)FindWindow(XRCID("ID_RADIOBOX1"));
++	Pan1 = (wxPanel*)FindWindow(XRCID("ID_P7"));
++	Pan2 = (wxPanel*)FindWindow(XRCID("ID_P6"));
++	Pan3 = (wxPanel*)FindWindow(XRCID("ID_P5"));
++	Pan4 = (wxPanel*)FindWindow(XRCID("ID_P4"));
++	Pan5 = (wxPanel*)FindWindow(XRCID("ID_P3"));
++	Pan6 = (wxPanel*)FindWindow(XRCID("ID_P2"));
++	Pan7 = (wxPanel*)FindWindow(XRCID("ID_P1"));
++	Pan8 = (wxPanel*)FindWindow(XRCID("ID_P0"));
++	Panel2 = (wxPanel*)FindWindow(XRCID("ID_PANEL2"));
++	TextCtrl1 = (wxTextCtrl*)FindWindow(XRCID("ID_TEXTCTRL1"));
++	Button1 = (wxButton*)FindWindow(XRCID("wxID_CANCEL"));
++	Button2 = (wxButton*)FindWindow(XRCID("wxID_OK"));
++	Panel1 = (wxPanel*)FindWindow(XRCID("ID_PANEL1"));
++
++	Connect(XRCID("ID_RADIOBOX1"),wxEVT_COMMAND_RADIOBOX_SELECTED,(wxObjectEventFunction)&RegisterDlg::OnRadioBoxConv);
++	Pan1->Connect(wxEVT_LEFT_DOWN,(wxObjectEventFunction)&RegisterDlg::OnCheckPanRight,0,this);
++	Pan2->Connect(wxEVT_LEFT_DOWN,(wxObjectEventFunction)&RegisterDlg::OnCheckPanRight,0,this);
++	Pan3->Connect(wxEVT_LEFT_DOWN,(wxObjectEventFunction)&RegisterDlg::OnCheckPanRight,0,this);
++	Pan4->Connect(wxEVT_LEFT_DOWN,(wxObjectEventFunction)&RegisterDlg::OnCheckPanRight,0,this);
++	Pan5->Connect(wxEVT_LEFT_DOWN,(wxObjectEventFunction)&RegisterDlg::OnCheckPanRight,0,this);
++	Pan6->Connect(wxEVT_LEFT_DOWN,(wxObjectEventFunction)&RegisterDlg::OnCheckPanRight,0,this);
++	Pan7->Connect(wxEVT_LEFT_DOWN,(wxObjectEventFunction)&RegisterDlg::OnCheckPanRight,0,this);
++	Pan8->Connect(wxEVT_LEFT_DOWN,(wxObjectEventFunction)&RegisterDlg::OnCheckPanRight,0,this);
++	Connect(XRCID("wxID_CANCEL"),wxEVT_COMMAND_BUTTON_CLICKED,(wxObjectEventFunction)&RegisterDlg::OnButton1Click);
++	Connect(XRCID("wxID_OK"),wxEVT_COMMAND_BUTTON_CLICKED,(wxObjectEventFunction)&RegisterDlg::OnButton2Click);
++	//*)
++
++	TextRg->SetLabelText("Register: " + namereg);
++	TextRgVal->SetLabelText("Hex: " + valreg);
++
++	BitRgControls[0] = Pan8;BitRgControls[1] = Pan7;BitRgControls[2] = Pan6;BitRgControls[3] = Pan5;
++	BitRgControls[4] = Pan4;BitRgControls[5] = Pan3;BitRgControls[6] = Pan2;BitRgControls[7] = Pan1;
++
++    std::stringstream ss;
++    ss << std::hex << valreg.c_str();
++    ss >> decValue;
++    binDecValue = decValue;
++
++	Panel2->Enable(false);
++
++	if (numbase > 8)
++    {
++        RadioBox1->Enable(2, false);
++    }
++    else
++    {
++        int sz1, sz2, sz3;
++        Button2->GetSize(&sz1, &sz3);
++        this->GetSize(&sz1, &sz2);
++        sz2 += sz3;
++        this->SetMinSize(wxSize(sz1, sz2));
++        Panel2->Show(true);
++         bsetrg();
++    }
++
++}
++
++RegisterDlg::~RegisterDlg()
++{
++	//(*Destroy(RegisterDlg)
++	//*)
++}
++
++
++void RegisterDlg::OnRadioBoxConv(wxCommandEvent& event)
++{
++    TextCtrl1->Clear();
++    binDecValue = decValue;
++    if (m_numbase == 8)
++        bsetrg();
++   switch (RadioBox1->GetSelection())
++   {
++       case 0:
++           m_prefixstr = "0x"; //hex
++           m_dformat = HEX;
++           TextRgVal->SetLabelText("Hex: " + m_valreg);
++           Panel2->Enable(false);
++           TextCtrl1->Enable(true);
++           break;
++       case 1:
++           m_prefixstr = ""; //dec
++           m_dformat = DEC;
++           TextRgVal->SetLabelText("Dec: " + wxString::Format(wxT("%ld"),decValue));
++           Panel2->Enable(false);
++           TextCtrl1->Enable(true);
++           break;
++       case 2:
++           m_prefixstr = "0b"; //bin
++           m_dformat = BIN;
++           std::bitset<8> b(decValue);
++           TextRgVal->SetLabelText("Bin: " + b.to_string());
++           Panel2->Enable(true);
++           *TextCtrl1 << b.to_string();
++           TextCtrl1->Enable(false);
++           break;
++
++   }
++}
++
++void RegisterDlg::OnButton1Click(wxCommandEvent& event)
++{
++    EndModal(wxID_CANCEL);
++}
++
++void RegisterDlg::OnButton2Click(wxCommandEvent& event)
++{
++    bool ENDREG = false;
++    wxString stresult = TextCtrl1->GetLineText(0);
++    if (stresult == "")
++        return;
++    switch (m_dformat)
++    {
++    case HEX:
++        {
++            unsigned n;
++            std::stringstream ss;
++            ss << std::hex << stresult.c_str();
++            ss >> n;
++            if ((m_numbase == 8 && n <= 255 && n >= 0) || (m_numbase == 32 && n <= 4294967295 && n >= 0))
++              ENDREG = true;
++            break;
++        }
++
++    case DEC:
++        {
++           if  ((m_numbase == 8 && wxAtoi(stresult) <= 255 && wxAtoi(stresult) >= 0) ||
++                (m_numbase == 32 && wxAtoi(stresult) <= 4294967295 && wxAtoi(stresult) >= 0))
++              ENDREG = true;
++            break;
++        }
++    case BIN:
++        {
++	    if (binDecValue == decValue)
++	    	ENDREG = false;
++	    else
++		ENDREG = true;
++            break;
++        }
++    }
++
++    if (ENDREG)
++    {
++
++        wxString ex = "set $" + m_namereg + "=" +  m_prefixstr + stresult;
++        cbDebuggerPlugin *plug = Manager::Get()->GetDebuggerManager()->GetActiveDebugger();
++        if (plug)
++        {
++            plug->SendCommand(ex, true);
++		EndModal(wxID_OK);
++        }
++    }
++
++}
++
++void RegisterDlg::OnCheckPanRight(wxMouseEvent& event)
++{
++    wxPanel* temp1 = (wxPanel*)FindWindow(event.GetId());
++    unsigned selectorNum = wxAtoi(temp1->GetName().GetChar(4));
++
++    std::bitset<8> tempRg(binDecValue);
++
++	tempRg.flip(selectorNum);
++	binDecValue = tempRg.to_ulong();
++	bsetrg();
++	TextCtrl1->Clear();
++	*TextCtrl1 << tempRg.to_string();
++}
++
++void RegisterDlg::bsetrg(void)
++{
++    std::bitset<8> tempRg(binDecValue);
++
++	for (unsigned i = 0; i < 8; ++i)
++    {
++         if (tempRg[i])
++            BitRgControls[i]->SetBackgroundColour(*wxBLACK);
++        else
++            BitRgControls[i]->SetBackgroundColour(*wxWHITE);
++    }
++
++}
+diff -ruN src/RegisterDlg.h src-new/RegisterDlg.h
+--- src/RegisterDlg.h	1970-01-01 03:00:00.000000000 +0300
++++ src-new/RegisterDlg.h	2021-02-02 18:20:06.000000000 +0300
+@@ -0,0 +1,65 @@
++#ifndef REGISTERDLG_H
++#define REGISTERDLG_H
++
++//(*Headers(RegisterDlg)
++#include <wx/button.h>
++#include <wx/dialog.h>
++#include <wx/panel.h>
++#include <wx/radiobox.h>
++#include <wx/stattext.h>
++#include <wx/textctrl.h>
++//*)
++
++enum DFORMAT { HEX, DEC, BIN };
++
++class RegisterDlg: public wxDialog
++{
++	public:
++
++       // RegisterDlg(wxWindow* parent);
++		RegisterDlg(wxWindow* parent, unsigned numbase, wxString namereg, wxString valreg);
++		virtual ~RegisterDlg();
++
++		//(*Declarations(RegisterDlg)
++		wxButton* Button1;
++		wxButton* Button2;
++		wxPanel* Pan1;
++		wxPanel* Pan2;
++		wxPanel* Pan3;
++		wxPanel* Pan4;
++		wxPanel* Pan5;
++		wxPanel* Pan6;
++		wxPanel* Pan7;
++		wxPanel* Pan8;
++		wxPanel* Panel1;
++		wxPanel* Panel2;
++		wxRadioBox* RadioBox1;
++		wxStaticText* TextRg;
++		wxStaticText* TextRgVal;
++		wxTextCtrl* TextCtrl1;
++		//*)
++
++	protected:
++
++		//(*Identifiers(RegisterDlg)
++		//*)
++
++	private:
++	    wxString m_prefixstr = "0x";
++	    wxString m_valreg;
++	    wxString m_namereg;
++	    DFORMAT m_dformat = HEX;
++	    unsigned long decValue, binDecValue, m_numbase;
++	    wxPanel* BitRgControls[8];
++
++		//(*Handlers(RegisterDlg)
++		void OnRadioBoxConv(wxCommandEvent& event);
++		void OnButton1Click(wxCommandEvent& event);
++		void OnButton2Click(wxCommandEvent& event);
++		void OnCheckPanRight(wxMouseEvent& event);
++		//*)
++		void bsetrg(void);
++		DECLARE_EVENT_TABLE()
++};
++
++#endif
+diff -ruN src/resources/env_settings.xrc src-new/resources/env_settings.xrc
+--- src/resources/env_settings.xrc	2020-03-28 15:36:03.000000000 +0300
++++ src-new/resources/env_settings.xrc	1970-01-01 03:00:00.000000000 +0300
+@@ -1,950 +0,0 @@
+-<?xml version="1.0" encoding="utf-8" ?>
+-<resource xmlns="http://www.wxwidgets.org/wxxrc" version="2.5.3.0">
+-	<object class="wxScrollingDialog" name="dlgEnvironmentSettings">
+-		<title>Environment settings</title>
+-		<centered>1</centered>
+-		<style>wxDEFAULT_DIALOG_STYLE|wxRESIZE_BORDER</style>
+-		<object class="wxBoxSizer">
+-			<orient>wxVERTICAL</orient>
+-			<object class="sizeritem">
+-				<object class="wxPanel" name="pnlTitleInfo">
+-					<bg>#004080</bg>
+-					<object class="wxBoxSizer">
+-						<object class="spacer">
+-							<flag>wxALL|wxALIGN_CENTER_VERTICAL</flag>
+-							<border>4</border>
+-							<option>2</option>
+-						</object>
+-						<object class="sizeritem">
+-							<object class="wxStaticText" name="lblBigTitle">
+-								<label>General settings</label>
+-								<fg>#FFFFFF</fg>
+-								<bg>#004080</bg>
+-								<font>
+-									<size>14</size>
+-									<weight>bold</weight>
+-									<family>swiss</family>
+-								</font>
+-								<style>wxALIGN_CENTRE|wxBORDER_NONE|wxTRANSPARENT_WINDOW</style>
+-							</object>
+-							<flag>wxALIGN_TOP</flag>
+-							<border>4</border>
+-							<option>1</option>
+-						</object>
+-						<object class="spacer">
+-							<flag>wxALL|wxALIGN_CENTER_VERTICAL</flag>
+-							<border>4</border>
+-							<option>2</option>
+-						</object>
+-					</object>
+-				</object>
+-				<flag>wxEXPAND</flag>
+-				<border>5</border>
+-			</object>
+-			<object class="sizeritem">
+-				<object class="wxStaticLine" name="ID_STATICLINE1" />
+-				<flag>wxEXPAND</flag>
+-			</object>
+-			<object class="sizeritem">
+-				<object class="wxListbook" name="nbMain">
+-					<object class="listbookpage">
+-						<object class="wxPanel" name="tabGeneral">
+-							<object class="wxBoxSizer">
+-								<orient>wxVERTICAL</orient>
+-								<object class="sizeritem">
+-									<object class="wxCheckBox" name="chkShowSplash">
+-										<label>Show splash screen on start-up</label>
+-										<checked>1</checked>
+-									</object>
+-									<flag>wxLEFT|wxEXPAND</flag>
+-									<border>4</border>
+-								</object>
+-								<object class="sizeritem">
+-									<object class="wxCheckBox" name="chkSingleInstance">
+-										<label>Allow only one running instance (will take place after restart)</label>
+-										<checked>1</checked>
+-									</object>
+-									<flag>wxTOP|wxLEFT|wxEXPAND</flag>
+-									<border>4</border>
+-								</object>
+-								<object class="sizeritem">
+-									<object class="wxStaticBoxSizer">
+-										<label>Interprocess communication (will take place after restart)</label>
+-										<orient>wxVERTICAL</orient>
+-										<object class="sizeritem">
+-											<object class="wxCheckBox" name="chkUseIPC">
+-												<label>Use an already running instance (if possible)</label>
+-												<checked>1</checked>
+-											</object>
+-											<flag>wxALIGN_LEFT</flag>
+-											<border>2</border>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxCheckBox" name="chkRaiseViaIPC">
+-												<label>Bring it on top afterwards</label>
+-												<checked>1</checked>
+-											</object>
+-											<flag>wxTOP|wxALIGN_LEFT</flag>
+-											<border>4</border>
+-										</object>
+-									</object>
+-									<flag>wxTOP|wxLEFT|wxEXPAND</flag>
+-									<border>4</border>
+-								</object>
+-								<object class="sizeritem">
+-									<object class="wxBoxSizer">
+-										<object class="sizeritem">
+-											<object class="wxCheckBox" name="chkAssociations">
+-												<label>Check &amp;&amp; set file associations (Windows only)</label>
+-												<checked>1</checked>
+-											</object>
+-											<flag>wxEXPAND</flag>
+-											<border>4</border>
+-										</object>
+-										<object class="spacer">
+-											<flag>wxALIGN_CENTER_VERTICAL</flag>
+-											<border>5</border>
+-											<option>1</option>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxButton" name="btnSetAssocs">
+-												<label>Set now</label>
+-											</object>
+-											<flag>wxALIGN_CENTER_VERTICAL</flag>
+-											<border>4</border>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxButton" name="btnManageAssocs">
+-												<label>Manage...</label>
+-											</object>
+-											<flag>wxLEFT|wxALIGN_CENTER_VERTICAL</flag>
+-											<border>4</border>
+-										</object>
+-									</object>
+-									<flag>wxTOP|wxLEFT|wxEXPAND</flag>
+-									<border>4</border>
+-								</object>
+-								<object class="sizeritem">
+-									<object class="wxCheckBox" name="chkModifiedFiles">
+-										<label>Check for externally modified files</label>
+-										<checked>1</checked>
+-										<tooltip>When checked, Code::Blocks will regularly check whether any open files have been modified by other applications, and prompt the user to take action.</tooltip>
+-									</object>
+-									<flag>wxTOP|wxLEFT|wxEXPAND</flag>
+-									<border>4</border>
+-								</object>
+-								<object class="sizeritem">
+-									<object class="wxCheckBox" name="chkInvalidTargets">
+-										<label>Ignore invalid targets</label>
+-										<tooltip>When checked the user will not be prompted to deal with invalid targets,&#x0A;during the build process they will be ignored (example : the target&apos;s compiler is not installed)</tooltip>
+-									</object>
+-									<flag>wxTOP|wxLEFT|wxEXPAND</flag>
+-									<border>4</border>
+-								</object>
+-								<object class="sizeritem">
+-									<object class="wxCheckBox" name="chkRobustSave">
+-										<label>Save using &quot;save to temp and rename&quot; operation</label>
+-										<checked>1</checked>
+-										<tooltip>Doing this makes it less probable that a save opeartion would lead to data corruption, but sometimes it interferes with softwares which monitor files</tooltip>
+-									</object>
+-									<flag>wxALL|wxEXPAND</flag>
+-									<border>5</border>
+-								</object>
+-								<object class="spacer">
+-									<flag>wxEXPAND</flag>
+-									<size>0,16</size>
+-								</object>
+-								<object class="sizeritem">
+-									<object class="wxFlexGridSizer">
+-										<cols>3</cols>
+-										<rows>1</rows>
+-										<vgap>4</vgap>
+-										<hgap>4</hgap>
+-										<object class="sizeritem">
+-											<object class="wxRadioBox" name="rbAppStart">
+-												<label>On application start-up</label>
+-												<content>
+-													<item>Open default workspace</item>
+-													<item>Open blank workspace</item>
+-												</content>
+-												<style>wxRA_SPECIFY_COLS</style>
+-											</object>
+-											<flag>wxEXPAND</flag>
+-											<option>1</option>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxStaticBoxSizer">
+-												<label>Layout options</label>
+-												<orient>wxVERTICAL</orient>
+-												<object class="sizeritem">
+-													<object class="wxCheckBox" name="chkProjectLayout">
+-														<label>Save/restore project layout</label>
+-														<checked>1</checked>
+-													</object>
+-													<flag>wxTOP|wxEXPAND</flag>
+-													<border>4</border>
+-												</object>
+-												<object class="sizeritem">
+-													<object class="wxCheckBox" name="chkEditorLayout">
+-														<label>Save/restore editor layout</label>
+-													</object>
+-													<flag>wxTOP|wxEXPAND</flag>
+-													<border>4</border>
+-												</object>
+-											</object>
+-											<flag>wxEXPAND</flag>
+-											<border>5</border>
+-											<option>1</option>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxRadioBox" name="rbProjectOpen">
+-												<label>On project load</label>
+-												<content>
+-													<item>Open all project files</item>
+-													<item>Open last open files</item>
+-													<item>Do not open any files</item>
+-												</content>
+-												<style>wxRA_SPECIFY_COLS</style>
+-											</object>
+-											<flag>wxEXPAND</flag>
+-											<option>1</option>
+-										</object>
+-									</object>
+-									<flag>wxTOP|wxLEFT|wxEXPAND</flag>
+-									<border>4</border>
+-								</object>
+-								<object class="spacer">
+-									<flag>wxALIGN_LEFT</flag>
+-									<size>0,16</size>
+-								</object>
+-								<object class="sizeritem">
+-									<object class="wxFlexGridSizer">
+-										<cols>2</cols>
+-										<rows>3</rows>
+-										<vgap>4</vgap>
+-										<hgap>4</hgap>
+-										<growablecols>1</growablecols>
+-										<object class="sizeritem">
+-											<object class="wxStaticText" name="ID_STATICTEXT8">
+-												<label>Shell to run commands in:</label>
+-											</object>
+-											<flag>wxALIGN_CENTER_VERTICAL</flag>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxTextCtrl" name="txtConsoleShell" />
+-											<flag>wxEXPAND</flag>
+-											<option>1</option>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxStaticText" name="ID_STATICTEXT9">
+-												<label>Terminal to launch console programs:</label>
+-											</object>
+-											<flag>wxALIGN_CENTER_VERTICAL</flag>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxComboBox" name="cbConsoleTerm" />
+-											<flag>wxALL|wxEXPAND</flag>
+-											<option>1</option>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxStaticText" name="wxID_ANY">
+-												<label>Open containing folder:</label>
+-											</object>
+-											<flag>wxALIGN_CENTER_VERTICAL</flag>
+-											<border>5</border>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxTextCtrl" name="txtOpenFolder">
+-												<tooltip>Enter system command to open the folder where the file resides in</tooltip>
+-											</object>
+-											<flag>wxLEFT|wxEXPAND</flag>
+-											<option>1</option>
+-										</object>
+-									</object>
+-									<flag>wxTOP|wxLEFT|wxEXPAND</flag>
+-									<border>4</border>
+-								</object>
+-							</object>
+-						</object>
+-						<label>General settings</label>
+-					</object>
+-					<object class="listbookpage">
+-						<object class="wxPanel" name="tabView">
+-							<object class="wxBoxSizer">
+-								<orient>wxVERTICAL</orient>
+-								<object class="sizeritem">
+-									<object class="wxCheckBox" name="chkShowStartPage">
+-										<label>Show &quot;Start here&quot; page (shown only when there are no open projects)</label>
+-										<checked>1</checked>
+-									</object>
+-									<flag>wxTOP|wxBOTTOM|wxLEFT|wxEXPAND</flag>
+-									<border>4</border>
+-								</object>
+-								<object class="sizeritem">
+-									<object class="wxBoxSizer">
+-										<object class="sizeritem">
+-											<object class="wxCheckBox" name="chkI18N">
+-												<label>Internationalization (will take place after restart)</label>
+-												<style>wxCHK_2STATE</style>
+-											</object>
+-											<flag>wxLEFT|wxRIGHT|wxALIGN_CENTER_VERTICAL</flag>
+-											<border>4</border>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxChoice" name="choLanguage">
+-												<content>
+-													<item>Available Languages</item>
+-												</content>
+-											</object>
+-											<flag>wxEXPAND</flag>
+-											<border>4</border>
+-											<option>1</option>
+-										</object>
+-									</object>
+-									<flag>wxEXPAND</flag>
+-									<border>8</border>
+-								</object>
+-								<object class="spacer">
+-									<flag>wxEXPAND</flag>
+-									<size>0,8</size>
+-								</object>
+-								<object class="sizeritem">
+-									<object class="wxBoxSizer">
+-										<object class="sizeritem">
+-											<object class="wxBoxSizer">
+-												<orient>wxVERTICAL</orient>
+-												<object class="sizeritem">
+-													<object class="wxStaticBoxSizer">
+-														<label>Toggle layouts</label>
+-														<orient>wxVERTICAL</orient>
+-														<object class="sizeritem">
+-															<object class="wxCheckBox" name="chkDblClkMaximizes">
+-																<label>Double-Click on editor tab toggles layout</label>
+-																<checked>1</checked>
+-															</object>
+-															<flag>wxTOP|wxALIGN_LEFT</flag>
+-															<border>4</border>
+-														</object>
+-														<object class="sizeritem">
+-															<object class="wxBoxSizer">
+-																<orient>wxVERTICAL</orient>
+-																<object class="sizeritem">
+-																	<object class="wxStaticText" name="ID_STATICTEXT10">
+-																		<label>Layout to toggle with, if no previous layout can be found</label>
+-																	</object>
+-																	<flag>wxBOTTOM|wxLEFT|wxALIGN_LEFT</flag>
+-																	<border>5</border>
+-																</object>
+-																<object class="sizeritem">
+-																	<object class="wxChoice" name="choLayoutToToggle" />
+-																	<flag>wxEXPAND</flag>
+-																	<border>4</border>
+-																</object>
+-															</object>
+-															<flag>wxALL|wxEXPAND</flag>
+-															<border>4</border>
+-															<option>1</option>
+-														</object>
+-													</object>
+-													<flag>wxEXPAND</flag>
+-													<border>4</border>
+-												</object>
+-												<object class="sizeritem">
+-													<object class="wxStaticBoxSizer">
+-														<label>Feature size</label>
+-														<object class="sizeritem">
+-															<object class="wxFlexGridSizer">
+-																<cols>2</cols>
+-																<object class="sizeritem">
+-																	<object class="wxStaticText" name="ID_STATICTEXT22">
+-																		<label>Message logs&apos; font size:</label>
+-																	</object>
+-																	<flag>wxALIGN_CENTER_VERTICAL</flag>
+-																</object>
+-																<object class="sizeritem">
+-																	<object class="wxSpinCtrl" name="spnLogFontSize">
+-																		<value>8</value>
+-																		<min>6</min>
+-																		<max>32</max>
+-																	</object>
+-																	<flag>wxTOP|wxLEFT|wxRIGHT|wxEXPAND</flag>
+-																	<border>5</border>
+-																</object>
+-																<object class="sizeritem">
+-																	<object class="wxStaticText" name="ID_STATICTEXT23">
+-																		<label>Toolbar icon size</label>
+-																	</object>
+-																	<flag>wxALL|wxALIGN_CENTER_VERTICAL</flag>
+-																	<border>5</border>
+-																</object>
+-																<object class="sizeritem">
+-																	<object class="wxChoice" name="chToolbarIconSize" />
+-																	<flag>wxTOP|wxLEFT|wxRIGHT|wxEXPAND</flag>
+-																	<border>5</border>
+-																</object>
+-																<object class="sizeritem">
+-																	<object class="wxStaticText" name="ID_STATICTEXT24">
+-																		<label>Settings icon size</label>
+-																	</object>
+-																	<flag>wxALL|wxALIGN_CENTER_VERTICAL</flag>
+-																	<border>5</border>
+-																</object>
+-																<object class="sizeritem">
+-																	<object class="wxChoice" name="chSettingsIconsSize">
+-																		<content>
+-																			<item>80 x 80 - Large</item>
+-																			<item>No icons, just text</item>
+-																		</content>
+-																		<selection>0</selection>
+-																	</object>
+-																	<flag>wxTOP|wxLEFT|wxRIGHT|wxALIGN_LEFT|wxALIGN_BOTTOM</flag>
+-																	<border>5</border>
+-																	<option>1</option>
+-																</object>
+-															</object>
+-															<flag>wxALL</flag>
+-															<border>5</border>
+-														</object>
+-													</object>
+-													<flag>wxEXPAND</flag>
+-													<border>5</border>
+-												</object>
+-											</object>
+-											<flag>wxEXPAND</flag>
+-											<border>5</border>
+-											<option>1</option>
+-										</object>
+-										<object class="spacer">
+-											<flag>wxEXPAND</flag>
+-											<border>5</border>
+-											<size>5,0</size>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxStaticBoxSizer">
+-												<orient>wxVERTICAL</orient>
+-												<object class="sizeritem">
+-													<object class="wxBoxSizer">
+-														<object class="sizeritem">
+-															<object class="wxStaticText" name="ID_STATICTEXT26">
+-																<label>Child window placement</label>
+-															</object>
+-															<flag>wxALL|wxALIGN_CENTER_VERTICAL</flag>
+-															<border>5</border>
+-														</object>
+-														<object class="sizeritem">
+-															<object class="wxChoice" name="chChildWindowPlace">
+-																<content>
+-																	<item>Center on Parent</item>
+-																	<item>Center on Monitor</item>
+-																	<item>Leave to OS/Window Manager</item>
+-																</content>
+-																<selection>0</selection>
+-															</object>
+-															<flag>wxLEFT</flag>
+-															<border>5</border>
+-															<option>1</option>
+-														</object>
+-													</object>
+-													<flag>wxTOP|wxBOTTOM|wxLEFT|wxALIGN_LEFT</flag>
+-													<border>5</border>
+-												</object>
+-												<object class="sizeritem">
+-													<object class="wxCheckBox" name="chkPlaceHead">
+-														<label>Move to &quot;head up&quot; position</label>
+-													</object>
+-													<flag>wxLEFT</flag>
+-													<border>16</border>
+-												</object>
+-												<object class="sizeritem">
+-													<object class="wxCheckBox" name="chkAutoHideMessages">
+-														<label>Auto show/hide message pane</label>
+-													</object>
+-													<flag>wxTOP|wxBOTTOM|wxLEFT|wxEXPAND</flag>
+-													<border>4</border>
+-												</object>
+-												<object class="sizeritem">
+-													<object class="wxBoxSizer">
+-														<orient>wxVERTICAL</orient>
+-														<object class="sizeritem">
+-															<object class="wxCheckBox" name="chkAutoShowMessagesOnSearch">
+-																<label>Keep open after search-in-files</label>
+-															</object>
+-															<flag>wxALIGN_LEFT</flag>
+-														</object>
+-														<object class="sizeritem">
+-															<object class="wxCheckBox" name="chkAutoShowMessagesOnWarn">
+-																<label>Keep open after build warnings</label>
+-															</object>
+-															<flag>wxTOP|wxALIGN_LEFT</flag>
+-															<border>4</border>
+-														</object>
+-														<object class="sizeritem">
+-															<object class="wxCheckBox" name="chkAutoShowMessagesOnErr">
+-																<label>Keep open after build errors</label>
+-															</object>
+-															<flag>wxTOP|wxALIGN_LEFT</flag>
+-															<border>4</border>
+-														</object>
+-													</object>
+-													<flag>wxLEFT|wxALIGN_LEFT</flag>
+-													<border>16</border>
+-												</object>
+-												<object class="sizeritem">
+-													<object class="wxCheckBox" name="chkAutoFocusMessagesOnErr">
+-														<label>Focus first error in the editor after build finishes</label>
+-													</object>
+-													<flag>wxTOP|wxLEFT|wxALIGN_LEFT</flag>
+-													<border>4</border>
+-												</object>
+-												<object class="sizeritem">
+-													<object class="wxCheckBox" name="chkSaveSelectionChangeInMP">
+-														<label>Save selected tab in message pane on perspective change</label>
+-													</object>
+-													<flag>wxTOP|wxLEFT|wxALIGN_LEFT</flag>
+-													<border>4</border>
+-												</object>
+-											</object>
+-											<flag>wxEXPAND</flag>
+-											<border>10</border>
+-											<option>1</option>
+-										</object>
+-									</object>
+-									<flag>wxALL|wxEXPAND</flag>
+-									<border>5</border>
+-								</object>
+-							</object>
+-						</object>
+-						<label>View</label>
+-					</object>
+-					<object class="listbookpage">
+-						<object class="wxPanel" name="pblNotebooks">
+-							<object class="wxBoxSizer">
+-								<orient>wxVERTICAL</orient>
+-								<object class="sizeritem">
+-									<object class="wxFlexGridSizer">
+-										<cols>2</cols>
+-										<rows>1</rows>
+-										<vgap>4</vgap>
+-										<hgap>4</hgap>
+-										<growablecols>1</growablecols>
+-										<object class="sizeritem">
+-											<object class="wxStaticText" name="ID_STATICTEXT1">
+-												<label>Tabs style:</label>
+-											</object>
+-											<flag>wxALIGN_CENTER_VERTICAL</flag>
+-											<border>4</border>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxChoice" name="cmbEditorTabs">
+-												<content>
+-													<item>Default</item>
+-													<item>Simple tabs</item>
+-													<item>Microsoft (tm) Visual Studio 7.1</item>
+-													<item>Firefox 2</item>
+-												</content>
+-											</object>
+-											<flag>wxEXPAND</flag>
+-											<border>4</border>
+-											<option>1</option>
+-										</object>
+-									</object>
+-									<flag>wxLEFT|wxEXPAND</flag>
+-									<border>4</border>
+-								</object>
+-								<object class="sizeritem">
+-									<object class="wxBoxSizer">
+-										<object class="sizeritem">
+-											<object class="wxStaticText" name="ID_STATICTEXT3">
+-												<label>Show close button on</label>
+-											</object>
+-											<flag>wxALL|wxALIGN_CENTER_VERTICAL</flag>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxChoice" name="cmbTabCloseStyle">
+-												<content>
+-													<item>all tabs</item>
+-													<item>current tab</item>
+-													<item>the right side</item>
+-												</content>
+-											</object>
+-											<flag>wxLEFT|wxEXPAND</flag>
+-											<border>4</border>
+-											<option>1</option>
+-										</object>
+-									</object>
+-									<flag>wxTOP|wxLEFT|wxEXPAND</flag>
+-									<border>4</border>
+-								</object>
+-								<object class="sizeritem">
+-									<object class="wxCheckBox" name="chkListTabs">
+-										<label>Use drop-down tab list</label>
+-									</object>
+-									<flag>wxTOP|wxLEFT|wxALIGN_LEFT</flag>
+-									<border>4</border>
+-								</object>
+-								<object class="sizeritem">
+-									<object class="wxCheckBox" name="chkStackedBasedTabSwitching">
+-										<label>Use stacked based tab-switching</label>
+-									</object>
+-									<flag>wxTOP|wxLEFT|wxALIGN_LEFT</flag>
+-									<border>4</border>
+-								</object>
+-								<object class="sizeritem">
+-									<object class="wxStaticBoxSizer">
+-										<label>Scroll tabs with mousewheel</label>
+-										<orient>wxVERTICAL</orient>
+-										<object class="sizeritem">
+-											<object class="wxCheckBox" name="chkNBUseMousewheel">
+-												<label>Enable scrolling with mousewheel</label>
+-											</object>
+-											<flag>wxALIGN_LEFT</flag>
+-											<border>4</border>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxRadioButton" name="rbNBModToAdvance">
+-												<label>Modifier needed to advance through the tabs (changes selection)</label>
+-											</object>
+-											<flag>wxLEFT|wxALIGN_LEFT</flag>
+-											<border>16</border>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxRadioButton" name="rbNBModToMove">
+-												<label>Modifier needed to move the tabs (if some of them are invisible)</label>
+-												<selected>1</selected>
+-											</object>
+-											<flag>wxLEFT|wxALIGN_LEFT</flag>
+-											<border>16</border>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxCheckBox" name="chkNBInvertAdvance">
+-												<label>Invert advance direction</label>
+-											</object>
+-											<flag>wxLEFT|wxALIGN_LEFT</flag>
+-											<border>28</border>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxCheckBox" name="chkNBInvertMove">
+-												<label>Invert move direction</label>
+-											</object>
+-											<flag>wxLEFT|wxALIGN_LEFT</flag>
+-											<border>28</border>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxBoxSizer">
+-												<object class="sizeritem">
+-													<object class="wxStaticText" name="ID_STATICTEXT2">
+-														<label>Modifier key (default is Cmd on Mac and Ctrl on other platforms):</label>
+-													</object>
+-													<flag>wxALIGN_CENTER_VERTICAL</flag>
+-													<border>4</border>
+-												</object>
+-												<object class="sizeritem">
+-													<object class="wxTextCtrl" name="txtMousewheelModifier" />
+-													<flag>wxLEFT|wxALIGN_BOTTOM</flag>
+-													<border>4</border>
+-													<option>1</option>
+-												</object>
+-											</object>
+-											<flag>wxTOP|wxALIGN_LEFT</flag>
+-											<border>4</border>
+-										</object>
+-									</object>
+-									<flag>wxTOP|wxLEFT|wxEXPAND</flag>
+-									<border>4</border>
+-								</object>
+-							</object>
+-						</object>
+-						<label>Notebooks appearance</label>
+-					</object>
+-					<object class="listbookpage">
+-						<object class="wxPanel" name="tabColours">
+-							<object class="wxBoxSizer">
+-								<orient>wxVERTICAL</orient>
+-								<object class="sizeritem">
+-									<object class="wxBoxSizer">
+-										<object class="sizeritem">
+-											<object class="wxStaticText" name="ID_STATICTEXT4">
+-												<label>Category:</label>
+-											</object>
+-											<flag>wxLEFT|wxRIGHT|wxALIGN_CENTER_VERTICAL</flag>
+-											<border>4</border>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxChoice" name="chCategory" />
+-											<flag>wxALIGN_CENTER_VERTICAL</flag>
+-											<border>4</border>
+-											<option>1</option>
+-										</object>
+-									</object>
+-									<flag>wxALL|wxEXPAND</flag>
+-								</object>
+-								<object class="sizeritem">
+-									<object class="wxBoxSizer">
+-										<object class="sizeritem">
+-											<object class="wxListBox" name="lstColours">
+-												<default>-1</default>
+-											</object>
+-											<flag>wxTOP|wxLEFT|wxEXPAND</flag>
+-											<border>4</border>
+-											<option>1</option>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxBoxSizer">
+-												<orient>wxVERTICAL</orient>
+-												<object class="sizeritem">
+-													<object class="wxStaticText" name="ID_STATICTEXT11">
+-														<label>Colour:</label>
+-													</object>
+-													<flag>wxTOP|wxEXPAND</flag>
+-													<border>4</border>
+-												</object>
+-												<object class="sizeritem">
+-													<object class="wxButton" name="btnColour">
+-														<label>...</label>
+-													</object>
+-													<flag>wxTOP|wxEXPAND</flag>
+-													<border>4</border>
+-													<option>1</option>
+-												</object>
+-												<object class="sizeritem">
+-													<object class="wxStaticLine" name="ID_STATICLINE4">
+-														<size>10,-1</size>
+-													</object>
+-													<flag>wxTOP|wxEXPAND</flag>
+-													<border>4</border>
+-													<option>1</option>
+-												</object>
+-												<object class="sizeritem">
+-													<object class="wxStaticText" name="ID_STATICTEXT25">
+-														<label>Default:</label>
+-													</object>
+-													<flag>wxTOP|wxEXPAND</flag>
+-													<border>4</border>
+-												</object>
+-												<object class="sizeritem">
+-													<object class="wxButton" name="btnDefaultColour">
+-														<label>Default</label>
+-													</object>
+-													<flag>wxTOP|wxALIGN_LEFT</flag>
+-													<border>4</border>
+-													<option>1</option>
+-												</object>
+-											</object>
+-											<flag>wxTOP|wxLEFT|wxALIGN_TOP</flag>
+-											<border>4</border>
+-										</object>
+-									</object>
+-									<flag>wxEXPAND</flag>
+-									<border>4</border>
+-									<option>1</option>
+-								</object>
+-							</object>
+-						</object>
+-						<label>Colours</label>
+-					</object>
+-					<object class="listbookpage">
+-						<object class="wxPanel" name="pnlDocking">
+-							<object class="wxBoxSizer">
+-								<orient>wxVERTICAL</orient>
+-								<object class="sizeritem">
+-									<object class="wxFlexGridSizer">
+-										<cols>2</cols>
+-										<vgap>4</vgap>
+-										<hgap>4</hgap>
+-										<object class="sizeritem">
+-											<object class="wxStaticText" name="ID_STATICTEXT5">
+-												<label>Pane border size:</label>
+-											</object>
+-											<flag>wxALIGN_CENTER_VERTICAL</flag>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxSpinCtrl" name="spnAuiBorder">
+-												<value>1</value>
+-											</object>
+-											<flag>wxALIGN_TOP</flag>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxStaticText" name="ID_STATICTEXT6">
+-												<label>Sash size:</label>
+-											</object>
+-											<flag>wxALIGN_CENTER_VERTICAL</flag>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxSpinCtrl" name="spnAuiSash">
+-												<value>4</value>
+-												<min>1</min>
+-											</object>
+-											<flag>wxALIGN_TOP</flag>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxStaticText" name="ID_STATICTEXT7">
+-												<label>Caption height:</label>
+-											</object>
+-											<flag>wxALIGN_CENTER_VERTICAL</flag>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxSpinCtrl" name="spnAuiCaption">
+-												<value>17</value>
+-												<min>4</min>
+-											</object>
+-											<flag>wxALIGN_TOP</flag>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxStaticText" name="ID_STATICTEXT12">
+-												<label>Active caption colour:</label>
+-											</object>
+-											<flag>wxALIGN_CENTER_VERTICAL</flag>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxButton" name="btnAuiActiveCaptionColour" />
+-											<flag>wxALIGN_TOP</flag>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxStaticText" name="ID_STATICTEXT13">
+-												<label>Active caption gradient colour:</label>
+-											</object>
+-											<flag>wxALIGN_CENTER_VERTICAL</flag>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxButton" name="btnAuiActiveCaptionGradientColour" />
+-											<flag>wxALIGN_TOP</flag>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxStaticText" name="ID_STATICTEXT14">
+-												<label>Active caption text colour:</label>
+-											</object>
+-											<flag>wxALIGN_CENTER_VERTICAL</flag>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxButton" name="btnAuiActiveCaptionTextColour" />
+-											<flag>wxALIGN_TOP</flag>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxStaticText" name="ID_STATICTEXT15">
+-												<label>Inactive caption colour:</label>
+-											</object>
+-											<flag>wxALIGN_CENTER_VERTICAL</flag>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxButton" name="btnAuiInactiveCaptionColour" />
+-											<flag>wxALIGN_TOP</flag>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxStaticText" name="ID_STATICTEXT16">
+-												<label>Inactive caption gradient colour:</label>
+-											</object>
+-											<flag>wxALIGN_CENTER_VERTICAL</flag>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxButton" name="btnAuiInactiveCaptionGradientColour" />
+-											<flag>wxALIGN_TOP</flag>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxStaticText" name="ID_STATICTEXT17">
+-												<label>Inactive caption text colour:</label>
+-											</object>
+-											<flag>wxALIGN_CENTER_VERTICAL</flag>
+-										</object>
+-										<object class="sizeritem">
+-											<object class="wxButton" name="btnAuiInactiveCaptionTextColour" />
+-											<flag>wxALIGN_TOP</flag>
+-										</object>
+-									</object>
+-									<flag>wxLEFT|wxEXPAND</flag>
+-									<border>8</border>
+-								</object>
+-								<object class="sizeritem">
+-									<object class="wxButton" name="btnResetDefaultColours">
+-										<label>Reset to defaults</label>
+-									</object>
+-									<flag>wxTOP|wxLEFT|wxALIGN_RIGHT</flag>
+-									<border>4</border>
+-								</object>
+-							</object>
+-						</object>
+-						<label>Docking system</label>
+-					</object>
+-					<object class="listbookpage">
+-						<object class="wxPanel" name="tabDialogs">
+-							<object class="wxBoxSizer">
+-								<orient>wxVERTICAL</orient>
+-								<object class="sizeritem">
+-									<object class="wxStaticText" name="ID_STATICTEXT18">
+-										<label>Re-enable the following confirmation dialogs:</label>
+-									</object>
+-									<flag>wxLEFT|wxEXPAND</flag>
+-									<border>4</border>
+-								</object>
+-								<object class="sizeritem">
+-									<object class="wxStaticText" name="ID_STATICTEXT19">
+-										<label>(list will be empty if all dialogs are enabled)</label>
+-									</object>
+-									<flag>wxLEFT|wxEXPAND</flag>
+-									<border>4</border>
+-								</object>
+-								<object class="sizeritem">
+-									<object class="wxCheckListBox" name="chkDialogs" />
+-									<flag>wxLEFT|wxEXPAND</flag>
+-									<border>4</border>
+-									<option>1</option>
+-								</object>
+-							</object>
+-						</object>
+-						<label>Disabled dialogs</label>
+-					</object>
+-					<object class="listbookpage">
+-						<object class="wxPanel" name="tabNetwork">
+-							<object class="wxBoxSizer">
+-								<orient>wxVERTICAL</orient>
+-								<object class="sizeritem">
+-									<object class="wxStaticText" name="ID_STATICTEXT20">
+-										<label>Use the following proxy when making network connections:</label>
+-									</object>
+-									<flag>wxLEFT|wxEXPAND</flag>
+-									<border>4</border>
+-								</object>
+-								<object class="sizeritem">
+-									<object class="wxStaticText" name="ID_STATICTEXT21">
+-										<label>(Format: hostname:port)</label>
+-									</object>
+-									<flag>wxLEFT|wxEXPAND</flag>
+-									<border>4</border>
+-								</object>
+-								<object class="sizeritem">
+-									<object class="wxTextCtrl" name="txtProxy" />
+-									<flag>wxTOP|wxLEFT|wxEXPAND</flag>
+-									<border>4</border>
+-								</object>
+-							</object>
+-						</object>
+-						<label>Network proxy</label>
+-					</object>
+-				</object>
+-				<flag>wxALL|wxEXPAND</flag>
+-				<border>8</border>
+-				<option>1</option>
+-			</object>
+-			<object class="sizeritem">
+-				<object class="wxStaticLine" name="ID_STATICLINE2" />
+-				<flag>wxLEFT|wxRIGHT|wxEXPAND</flag>
+-				<border>8</border>
+-			</object>
+-			<object class="sizeritem">
+-				<object class="wxStdDialogButtonSizer">
+-					<object class="button">
+-						<object class="wxButton" name="wxID_OK">
+-							<label></label>
+-						</object>
+-					</object>
+-					<object class="button">
+-						<object class="wxButton" name="wxID_CANCEL">
+-							<label></label>
+-						</object>
+-					</object>
+-				</object>
+-				<flag>wxALL|wxEXPAND</flag>
+-				<border>8</border>
+-			</object>
+-		</object>
+-	</object>
+-</resource>
+diff -ruN src/resources/memdump.xrc src-new/resources/memdump.xrc
+--- src/resources/memdump.xrc	2020-03-28 15:36:04.000000000 +0300
++++ src-new/resources/memdump.xrc	1970-01-01 03:00:00.000000000 +0300
+@@ -1,78 +0,0 @@
+-<?xml version="1.0" encoding="utf-8" ?>
+-<resource xmlns="http://www.wxwidgets.org/wxxrc" version="2.5.3.0">
+-	<object class="wxPanel" name="MemoryDumpPanel">
+-		<object class="wxBoxSizer">
+-			<orient>wxVERTICAL</orient>
+-			<object class="sizeritem">
+-				<object class="wxBoxSizer">
+-					<object class="sizeritem">
+-						<object class="wxStaticText" name="ID_STATICTEXT1">
+-							<label>Address:</label>
+-						</object>
+-						<flag>wxALIGN_CENTER_VERTICAL</flag>
+-						<border>4</border>
+-					</object>
+-					<object class="sizeritem">
+-						<object class="wxTextCtrl" name="txtAddress">
+-							<value>0x0</value>
+-							<style>wxTE_PROCESS_ENTER</style>
+-						</object>
+-						<flag>wxLEFT|wxALIGN_CENTER_VERTICAL</flag>
+-						<border>4</border>
+-						<option>1</option>
+-					</object>
+-					<object class="sizeritem">
+-						<object class="wxStaticText" name="ID_STATICTEXT2">
+-							<label>Bytes:</label>
+-						</object>
+-						<flag>wxLEFT|wxALIGN_CENTER_VERTICAL</flag>
+-						<border>4</border>
+-					</object>
+-					<object class="sizeritem">
+-						<object class="wxComboBox" name="cmbBytes">
+-							<content>
+-								<item>16</item>
+-								<item>32</item>
+-								<item>64</item>
+-								<item>128</item>
+-								<item>256</item>
+-								<item>512</item>
+-								<item>1024</item>
+-								<item>2048</item>
+-								<item>4096</item>
+-							</content>
+-							<selection>1</selection>
+-							<style>wxCB_READONLY</style>
+-						</object>
+-						<flag>wxLEFT|wxALIGN_CENTER_VERTICAL</flag>
+-						<border>4</border>
+-					</object>
+-					<object class="sizeritem">
+-						<object class="wxButton" name="btnGo">
+-							<label>Go</label>
+-						</object>
+-						<flag>wxLEFT|wxALIGN_CENTER_VERTICAL</flag>
+-						<border>4</border>
+-					</object>
+-				</object>
+-				<flag>wxTOP|wxLEFT|wxRIGHT|wxEXPAND</flag>
+-				<border>4</border>
+-			</object>
+-			<object class="sizeritem">
+-				<object class="wxStaticText" name="ID_STATICTEXT3">
+-					<label>(e.g. 0x401060, or &amp;&amp;variable, or $$eax)</label>
+-				</object>
+-				<flag>wxLEFT|wxRIGHT</flag>
+-				<border>4</border>
+-			</object>
+-			<object class="sizeritem">
+-				<object class="wxTextCtrl" name="txtDump">
+-					<style>wxTE_MULTILINE|wxTE_READONLY|wxHSCROLL</style>
+-				</object>
+-				<flag>wxTOP|wxEXPAND</flag>
+-				<border>4</border>
+-				<option>1</option>
+-			</object>
+-		</object>
+-	</object>
+-</resource>
+diff -ruN src/resources/RegisterDlg.xrc src-new/resources/RegisterDlg.xrc
+--- src/resources/RegisterDlg.xrc	1970-01-01 03:00:00.000000000 +0300
++++ src-new/resources/RegisterDlg.xrc	2021-02-02 18:20:33.000000000 +0300
+@@ -0,0 +1,171 @@
++<?xml version="1.0" encoding="utf-8" ?>
++<resource xmlns="http://www.wxwidgets.org/wxxrc" version="2.5.3.0">
++	<object class="wxDialog" name="RegisterDlg">
++		<title>Register</title>
++		<centered>1</centered>
++		<size>252,316</size>
++		<object class="wxBoxSizer">
++			<object class="sizeritem">
++				<object class="wxPanel" name="ID_PANEL1">
++					<pos>0,0</pos>
++					<object class="wxBoxSizer">
++						<orient>wxVERTICAL</orient>
++						<object class="sizeritem">
++							<object class="wxStaticBoxSizer">
++								<label>Current values</label>
++								<orient>wxVERTICAL</orient>
++								<object class="sizeritem">
++									<object class="wxStaticText" name="ID_STATICTEXT1">
++										<label>Register:</label>
++									</object>
++									<flag>wxALL|wxALIGN_LEFT</flag>
++									<border>5</border>
++									<option>1</option>
++								</object>
++								<object class="sizeritem">
++									<object class="wxStaticText" name="ID_STATICTEXT2">
++										<label>Value:</label>
++									</object>
++									<flag>wxALL|wxALIGN_LEFT</flag>
++									<border>5</border>
++									<option>1</option>
++								</object>
++							</object>
++							<flag>wxALL|wxEXPAND</flag>
++							<border>5</border>
++						</object>
++						<object class="sizeritem">
++							<object class="wxRadioBox" name="ID_RADIOBOX1">
++								<label>Formats</label>
++								<content>
++									<item>hex</item>
++									<item>dec</item>
++									<item>bin</item>
++								</content>
++								<default>-1</default>
++								<size>232,75</size>
++							</object>
++							<flag>wxALL|wxEXPAND</flag>
++							<border>5</border>
++						</object>
++						<object class="sizeritem">
++							<object class="wxPanel" name="ID_PANEL2">
++								<hidden>1</hidden>
++								<style>wxBORDER_SUNKEN</style>
++								<object class="wxFlexGridSizer">
++									<cols>8</cols>
++									<vgap>4</vgap>
++									<object class="sizeritem">
++										<object class="wxPanel" name="ID_P7">
++											<size>18,18</size>
++											<style>wxBORDER_SIMPLE</style>
++										</object>
++										<flag>wxALL</flag>
++										<border>5</border>
++										<option>1</option>
++									</object>
++									<object class="sizeritem">
++										<object class="wxPanel" name="ID_P6">
++											<size>18,18</size>
++											<style>wxBORDER_SIMPLE</style>
++										</object>
++										<flag>wxALL|wxFIXED_MINSIZE</flag>
++										<border>5</border>
++										<option>1</option>
++									</object>
++									<object class="sizeritem">
++										<object class="wxPanel" name="ID_P5">
++											<size>18,18</size>
++											<style>wxBORDER_SIMPLE</style>
++										</object>
++										<flag>wxALL|wxFIXED_MINSIZE</flag>
++										<border>5</border>
++										<option>1</option>
++									</object>
++									<object class="sizeritem">
++										<object class="wxPanel" name="ID_P4">
++											<size>18,18</size>
++											<style>wxBORDER_SIMPLE</style>
++										</object>
++										<flag>wxALL|wxFIXED_MINSIZE</flag>
++										<border>5</border>
++										<option>1</option>
++									</object>
++									<object class="sizeritem">
++										<object class="wxPanel" name="ID_P3">
++											<size>18,18</size>
++											<style>wxBORDER_SIMPLE</style>
++										</object>
++										<flag>wxALL|wxFIXED_MINSIZE</flag>
++										<border>5</border>
++										<option>1</option>
++									</object>
++									<object class="sizeritem">
++										<object class="wxPanel" name="ID_P2">
++											<size>18,18</size>
++											<style>wxBORDER_SIMPLE|wxTAB_TRAVERSAL</style>
++										</object>
++										<flag>wxALL|wxFIXED_MINSIZE</flag>
++										<border>5</border>
++										<option>1</option>
++									</object>
++									<object class="sizeritem">
++										<object class="wxPanel" name="ID_P1">
++											<size>18,18</size>
++											<style>wxBORDER_SIMPLE|wxTAB_TRAVERSAL</style>
++										</object>
++										<flag>wxALL|wxFIXED_MINSIZE</flag>
++										<border>5</border>
++										<option>1</option>
++									</object>
++									<object class="sizeritem">
++										<object class="wxPanel" name="ID_P0">
++											<size>18,18</size>
++											<style>wxBORDER_SIMPLE|wxTAB_TRAVERSAL</style>
++										</object>
++										<flag>wxALL|wxFIXED_MINSIZE</flag>
++										<border>5</border>
++										<option>1</option>
++									</object>
++								</object>
++							</object>
++							<flag>wxALL|wxEXPAND</flag>
++							<border>3</border>
++						</object>
++						<object class="sizeritem">
++							<object class="wxTextCtrl" name="ID_TEXTCTRL1" />
++							<flag>wxALL|wxEXPAND</flag>
++							<border>5</border>
++						</object>
++						<object class="sizeritem">
++							<object class="wxBoxSizer">
++								<object class="sizeritem">
++									<object class="wxButton" name="wxID_CANCEL">
++										<label>Cancel</label>
++									</object>
++									<flag>wxALL|wxALIGN_CENTER_HORIZONTAL|wxALIGN_CENTER_VERTICAL</flag>
++									<border>5</border>
++									<option>1</option>
++								</object>
++								<object class="sizeritem">
++									<object class="wxButton" name="wxID_OK">
++										<label>OK</label>
++										<default>1</default>
++									</object>
++									<flag>wxALL|wxALIGN_CENTER_HORIZONTAL|wxALIGN_CENTER_VERTICAL</flag>
++									<border>5</border>
++									<option>1</option>
++								</object>
++							</object>
++							<flag>wxALL|wxALIGN_CENTER_HORIZONTAL|wxALIGN_CENTER_VERTICAL</flag>
++							<border>5</border>
++						</object>
++					</object>
++				</object>
++				<flag>wxALL</flag>
++				<border>5</border>
++				<option>1</option>
++			</object>
++		</object>
++	</object>
++</resource>
