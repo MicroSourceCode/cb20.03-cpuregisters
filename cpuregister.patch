@@ -1,6 +1,74 @@
-diff -ruN src/cpuregistersdlg.cpp src-new/cpuregistersdlg.cpp
---- src/cpuregistersdlg.cpp	2020-03-28 15:36:04.000000000 +0300
-+++ src-new/cpuregistersdlg.cpp	2021-02-02 21:13:22.962817477 +0300
+diff -ruN codeblocks-20.03/src/CodeBlocks.cbp codeblocks-20.03-new/src/CodeBlocks.cbp
+--- codeblocks-20.03/src/CodeBlocks.cbp	2020-03-28 15:36:05.000000000 +0300
++++ codeblocks-20.03-new/src/CodeBlocks.cbp	2021-02-03 12:07:44.390130429 +0300
+@@ -4066,7 +4066,13 @@
+ 		<Unit filename="src/cpuregistersdlg.h">
+ 			<Option target="src" />
+ 		</Unit>
+-		<Unit filename="src/crashhandler.cpp">
++                <Unit filename="src/RegisterDlg.cpp">
++			<Option target="src" />
++		</Unit>
++		<Unit filename="src/RegisterDlg.h">
++			<Option target="src" />
++		</Unit>
++                <Unit filename="src/crashhandler.cpp">
+ 			<Option target="src" />
+ 		</Unit>
+ 		<Unit filename="src/crashhandler.h">
+diff -ruN codeblocks-20.03/src/CodeBlocks-unix.cbp codeblocks-20.03-new/src/CodeBlocks-unix.cbp
+--- codeblocks-20.03/src/CodeBlocks-unix.cbp	2020-03-28 15:36:05.000000000 +0300
++++ codeblocks-20.03-new/src/CodeBlocks-unix.cbp	2021-02-03 12:07:44.390130429 +0300
+@@ -3845,7 +3845,13 @@
+ 		<Unit filename="src/cpuregistersdlg.h">
+ 			<Option target="src" />
+ 		</Unit>
+-		<Unit filename="src/crashhandler.cpp">
++                <Unit filename="src/RegisterDlg.cpp">
++			<Option target="src" />
++		</Unit>
++		<Unit filename="src/RegisterDlg.h">
++			<Option target="src" />
++		</Unit>
++                <Unit filename="src/crashhandler.cpp">
+ 			<Option target="src" />
+ 		</Unit>
+ 		<Unit filename="src/crashhandler.h">
+diff -ruN codeblocks-20.03/src/CodeBlocks_wx31_64.cbp codeblocks-20.03-new/src/CodeBlocks_wx31_64.cbp
+--- codeblocks-20.03/src/CodeBlocks_wx31_64.cbp	2020-03-28 15:36:05.000000000 +0300
++++ codeblocks-20.03-new/src/CodeBlocks_wx31_64.cbp	2021-02-03 12:07:44.394130468 +0300
+@@ -4023,6 +4023,12 @@
+ 		<Unit filename="src/cpuregistersdlg.h">
+ 			<Option target="src" />
+ 		</Unit>
++                <Unit filename="src/RegisterDlg.cpp">
++			<Option target="src" />
++		</Unit>
++		<Unit filename="src/RegisterDlg.h">
++			<Option target="src" />
++		</Unit>
+ 		<Unit filename="src/crashhandler.cpp">
+ 			<Option target="src" />
+ 		</Unit>
+diff -ruN codeblocks-20.03/src/CodeBlocks_wx31.cbp codeblocks-20.03-new/src/CodeBlocks_wx31.cbp
+--- codeblocks-20.03/src/CodeBlocks_wx31.cbp	2020-03-28 15:36:05.000000000 +0300
++++ codeblocks-20.03-new/src/CodeBlocks_wx31.cbp	2021-02-03 12:07:44.394130468 +0300
+@@ -4024,6 +4024,12 @@
+ 		<Unit filename="src/cpuregistersdlg.h">
+ 			<Option target="src" />
+ 		</Unit>
++                <Unit filename="src/RegisterDlg.cpp">
++			<Option target="src" />
++		</Unit>
++		<Unit filename="src/RegisterDlg.h">
++			<Option target="src" />
++		</Unit>
+ 		<Unit filename="src/crashhandler.cpp">
+ 			<Option target="src" />
+ 		</Unit>
+diff -ruN codeblocks-20.03/src/src/cpuregistersdlg.cpp codeblocks-20.03-new/src/src/cpuregistersdlg.cpp
+--- codeblocks-20.03/src/src/cpuregistersdlg.cpp	2020-03-28 15:36:04.000000000 +0300
++++ codeblocks-20.03-new/src/src/cpuregistersdlg.cpp	2021-02-03 12:09:53.859397028 +0300
 @@ -13,6 +13,52 @@
  #include <wx/intl.h>
  #include <wx/sizer.h>
@@ -33,18 +101,18 @@ diff -ruN src/cpuregistersdlg.cpp src-new/cpuregistersdlg.cpp
 +{
 +	int convertedNumber[base];
 +	int i, p;
-+	
++
 +	for (int i = 0; i < base; i++)
 +	{
 +		convertedNumber[i] = convnum % 2;
 +		convnum = convnum / 2;
 +	}
-+	
++
 +	for (i = base - 1, p = 0; i >= 0; i--, p++)
 +	{
 +		if (convertedNumber[i])
 +			str[p] = '1';
-+		else 
++		else
 +			str[p] = '0';
 +	}
 +}
@@ -54,7 +122,17 @@ diff -ruN src/cpuregistersdlg.cpp src-new/cpuregistersdlg.cpp
  
  BEGIN_EVENT_TABLE(CPURegistersDlg, wxPanel)
  //    EVT_BUTTON(XRCID("btnRefresh"), CPURegistersDlg::OnRefresh)
-@@ -29,18 +75,64 @@
+@@ -21,26 +67,73 @@
+ CPURegistersDlg::CPURegistersDlg(wxWindow* parent) :
+     wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize)
+ {
++    //    SetFont(wxFont(14, wxMODERN, wxNORMAL, wxNORMAL, false));
+     wxBoxSizer* sizer = new wxBoxSizer(wxVERTICAL);
+-    m_pList = new wxListCtrl(this, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxLC_REPORT | wxLC_SINGLE_SEL);
++    m_pList = new wxListCtrl(this, ID_LISTCTRL1, wxDefaultPosition, wxDefaultSize, wxLC_REPORT | wxLC_SINGLE_SEL, wxDefaultValidator, _T("ID_LISTCTRL1"));
+     sizer->Add(m_pList, 1, wxGROW);
+     SetSizer(sizer);
+     Layout();
  
      wxFont font(8, wxFONTFAMILY_MODERN, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL);
      m_pList->SetFont(font);
@@ -120,7 +198,7 @@ diff -ruN src/cpuregistersdlg.cpp src-new/cpuregistersdlg.cpp
      m_pList->Thaw();
  }
  
-@@ -56,6 +148,16 @@
+@@ -56,6 +149,16 @@
  
  void CPURegistersDlg::SetRegisterValue(const wxString& reg_name, const wxString& hexValue, const wxString& interpreted)
  {
@@ -137,7 +215,7 @@ diff -ruN src/cpuregistersdlg.cpp src-new/cpuregistersdlg.cpp
      // find existing register
      int idx = RegisterIndex(reg_name);
      if (idx == -1)
-@@ -66,7 +168,25 @@
+@@ -66,7 +169,25 @@
      }
  
      m_pList->SetItem(idx, 1, hexValue);
@@ -164,7 +242,7 @@ diff -ruN src/cpuregistersdlg.cpp src-new/cpuregistersdlg.cpp
  
  #if defined(__WXMSW__) || wxCHECK_VERSION(3, 1, 0)
      const int autoSizeMode = wxLIST_AUTOSIZE_USEHEADER;
-@@ -74,7 +194,7 @@
+@@ -74,7 +195,7 @@
      const int autoSizeMode = wxLIST_AUTOSIZE;
  #endif
  
@@ -173,7 +251,7 @@ diff -ruN src/cpuregistersdlg.cpp src-new/cpuregistersdlg.cpp
      {
          m_pList->SetColumnWidth(i, autoSizeMode);
      }
-@@ -83,4 +203,38 @@
+@@ -83,4 +204,38 @@
  void CPURegistersDlg::EnableWindow(bool enable)
  {
      m_pList->Enable(enable);
@@ -212,9 +290,9 @@ diff -ruN src/cpuregistersdlg.cpp src-new/cpuregistersdlg.cpp
 +     }
 +}
  }
-diff -ruN src/cpuregistersdlg.h src-new/cpuregistersdlg.h
---- src/cpuregistersdlg.h	2020-03-28 15:36:04.000000000 +0300
-+++ src-new/cpuregistersdlg.h	2021-01-12 22:06:18.000000000 +0300
+diff -ruN codeblocks-20.03/src/src/cpuregistersdlg.h codeblocks-20.03-new/src/src/cpuregistersdlg.h
+--- codeblocks-20.03/src/src/cpuregistersdlg.h	2020-03-28 15:36:04.000000000 +0300
++++ codeblocks-20.03-new/src/src/cpuregistersdlg.h	2021-01-12 22:06:18.000000000 +0300
 @@ -9,6 +9,7 @@
  #include <wx/panel.h>
  #include <cbdebugger_interfaces.h>
@@ -244,14 +322,14 @@ diff -ruN src/cpuregistersdlg.h src-new/cpuregistersdlg.h
          wxListCtrl* m_pList;
  };
  
-diff -ruN src/Makefile.am src-new/Makefile.am
---- src/Makefile.am	2020-03-28 15:36:04.000000000 +0300
-+++ src-new/Makefile.am	2021-01-03 22:35:03.000000000 +0300
+diff -ruN codeblocks-20.03/src/src/Makefile.am codeblocks-20.03-new/src/src/Makefile.am
+--- codeblocks-20.03/src/src/Makefile.am	2020-03-28 15:36:04.000000000 +0300
++++ codeblocks-20.03-new/src/src/Makefile.am	2021-02-03 12:07:44.394130468 +0300
 @@ -42,6 +42,7 @@
  			breakpointsdlg.cpp \
  			compilersettingsdlg.cpp \
  			cpuregistersdlg.cpp \
-+			RegisterDlg.cpp \
++                        RegisterDlg.cpp \
  			crashhandler.cpp \
  			debugger_interface_creator.cpp \
  			debuggermenu.cpp \
@@ -259,84 +337,13 @@ diff -ruN src/Makefile.am src-new/Makefile.am
  			breakpointsdlg.h \
  			compilersettingsdlg.h \
  			cpuregistersdlg.h \
-+			RegisterDlg.h \
++                        RegisterDlg.h \
  			crashhandler.h \
  			debugger_interface_creator.h \
  			debuggermenu.h \
-diff -ruN src/Makefile.in src-new/Makefile.in
---- src/Makefile.in	2020-03-28 17:04:11.000000000 +0300
-+++ src-new/Makefile.in	2021-02-02 20:54:30.657082548 +0300
-@@ -114,8 +114,9 @@
- am_codeblocks_OBJECTS = app.$(OBJEXT) appglobals.$(OBJEXT) \
- 	backtracedlg.$(OBJEXT) breakpointsdlg.$(OBJEXT) \
- 	compilersettingsdlg.$(OBJEXT) cpuregistersdlg.$(OBJEXT) \
--	crashhandler.$(OBJEXT) debugger_interface_creator.$(OBJEXT) \
--	debuggermenu.$(OBJEXT) debuggersettingscommonpanel.$(OBJEXT) \
-+	RegisterDlg.$(OBJEXT) crashhandler.$(OBJEXT) \
-+	debugger_interface_creator.$(OBJEXT) debuggermenu.$(OBJEXT) \
-+	debuggersettingscommonpanel.$(OBJEXT) \
- 	debuggersettingsdlg.$(OBJEXT) debuggersettingspanel.$(OBJEXT) \
- 	disassemblydlg.$(OBJEXT) dlgabout.$(OBJEXT) \
- 	dlgaboutplugin.$(OBJEXT) editkeywordsdlg.$(OBJEXT) \
-@@ -153,8 +154,9 @@
- DEFAULT_INCLUDES = -I.@am__isrc@ -I$(top_builddir)/src/include
- depcomp = $(SHELL) $(top_srcdir)/depcomp
- am__maybe_remake_depfiles = depfiles
--am__depfiles_remade = ./$(DEPDIR)/app.Po ./$(DEPDIR)/appglobals.Po \
--	./$(DEPDIR)/backtracedlg.Po ./$(DEPDIR)/breakpointsdlg.Po \
-+am__depfiles_remade = ./$(DEPDIR)/RegisterDlg.Po ./$(DEPDIR)/app.Po \
-+	./$(DEPDIR)/appglobals.Po ./$(DEPDIR)/backtracedlg.Po \
-+	./$(DEPDIR)/breakpointsdlg.Po \
- 	./$(DEPDIR)/compilersettingsdlg.Po \
- 	./$(DEPDIR)/cpuregistersdlg.Po ./$(DEPDIR)/crashhandler.Po \
- 	./$(DEPDIR)/debugger_interface_creator.Po \
-@@ -573,6 +575,7 @@
- 			breakpointsdlg.cpp \
- 			compilersettingsdlg.cpp \
- 			cpuregistersdlg.cpp \
-+			RegisterDlg.cpp \
- 			crashhandler.cpp \
- 			debugger_interface_creator.cpp \
- 			debuggermenu.cpp \
-@@ -613,6 +616,7 @@
- 			breakpointsdlg.h \
- 			compilersettingsdlg.h \
- 			cpuregistersdlg.h \
-+			RegisterDlg.h \
- 			crashhandler.h \
- 			debugger_interface_creator.h \
- 			debuggermenu.h \
-@@ -746,6 +750,7 @@
- distclean-compile:
- 	-rm -f *.tab.c
- 
-+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/RegisterDlg.Po@am__quote@ # am--include-marker
- @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/app.Po@am__quote@ # am--include-marker
- @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/appglobals.Po@am__quote@ # am--include-marker
- @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/backtracedlg.Po@am__quote@ # am--include-marker
-@@ -1064,7 +1069,8 @@
- clean-am: clean-binPROGRAMS clean-generic clean-libtool mostlyclean-am
- 
- distclean: distclean-recursive
--		-rm -f ./$(DEPDIR)/app.Po
-+		-rm -f ./$(DEPDIR)/RegisterDlg.Po
-+	-rm -f ./$(DEPDIR)/app.Po
- 	-rm -f ./$(DEPDIR)/appglobals.Po
- 	-rm -f ./$(DEPDIR)/backtracedlg.Po
- 	-rm -f ./$(DEPDIR)/breakpointsdlg.Po
-@@ -1148,7 +1154,8 @@
- installcheck-am:
- 
- maintainer-clean: maintainer-clean-recursive
--		-rm -f ./$(DEPDIR)/app.Po
-+		-rm -f ./$(DEPDIR)/RegisterDlg.Po
-+	-rm -f ./$(DEPDIR)/app.Po
- 	-rm -f ./$(DEPDIR)/appglobals.Po
- 	-rm -f ./$(DEPDIR)/backtracedlg.Po
- 	-rm -f ./$(DEPDIR)/breakpointsdlg.Po
-diff -ruN src/RegisterDlg.cpp src-new/RegisterDlg.cpp
---- src/RegisterDlg.cpp	1970-01-01 03:00:00.000000000 +0300
-+++ src-new/RegisterDlg.cpp	2021-02-02 19:14:49.000000000 +0300
+diff -ruN codeblocks-20.03/src/src/RegisterDlg.cpp codeblocks-20.03-new/src/src/RegisterDlg.cpp
+--- codeblocks-20.03/src/src/RegisterDlg.cpp	1970-01-01 03:00:00.000000000 +0300
++++ codeblocks-20.03-new/src/src/RegisterDlg.cpp	2021-02-03 12:07:44.398130509 +0300
 @@ -0,0 +1,223 @@
 +#include "RegisterDlg.h"
 +
@@ -561,9 +568,9 @@ diff -ruN src/RegisterDlg.cpp src-new/RegisterDlg.cpp
 +    }
 +
 +}
-diff -ruN src/RegisterDlg.h src-new/RegisterDlg.h
---- src/RegisterDlg.h	1970-01-01 03:00:00.000000000 +0300
-+++ src-new/RegisterDlg.h	2021-02-02 18:20:06.000000000 +0300
+diff -ruN codeblocks-20.03/src/src/RegisterDlg.h codeblocks-20.03-new/src/src/RegisterDlg.h
+--- codeblocks-20.03/src/src/RegisterDlg.h	1970-01-01 03:00:00.000000000 +0300
++++ codeblocks-20.03-new/src/src/RegisterDlg.h	2021-02-03 12:07:44.398130509 +0300
 @@ -0,0 +1,65 @@
 +#ifndef REGISTERDLG_H
 +#define REGISTERDLG_H
@@ -630,9 +637,9 @@ diff -ruN src/RegisterDlg.h src-new/RegisterDlg.h
 +};
 +
 +#endif
-diff -ruN src/resources/RegisterDlg.xrc src-new/resources/RegisterDlg.xrc
---- src/resources/RegisterDlg.xrc	1970-01-01 03:00:00.000000000 +0300
-+++ src-new/resources/RegisterDlg.xrc	2021-02-02 18:20:33.000000000 +0300
+diff -ruN codeblocks-20.03/src/src/resources/RegisterDlg.xrc codeblocks-20.03-new/src/src/resources/RegisterDlg.xrc
+--- codeblocks-20.03/src/src/resources/RegisterDlg.xrc	1970-01-01 03:00:00.000000000 +0300
++++ codeblocks-20.03-new/src/src/resources/RegisterDlg.xrc	2021-02-03 12:07:44.398130509 +0300
 @@ -0,0 +1,171 @@
 +<?xml version="1.0" encoding="utf-8" ?>
 +<resource xmlns="http://www.wxwidgets.org/wxxrc" version="2.5.3.0">
