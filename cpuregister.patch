@@ -1,6 +1,6 @@
 diff -ruN codeblocks-20.03/src/CodeBlocks.cbp codeblocks-20.03-new/src/CodeBlocks.cbp
 --- codeblocks-20.03/src/CodeBlocks.cbp	2020-03-28 15:36:05.000000000 +0300
-+++ codeblocks-20.03-new/src/CodeBlocks.cbp	2021-02-03 12:07:44.390130429 +0300
++++ codeblocks-20.03-new/src/CodeBlocks.cbp	2021-02-20 13:03:45.444921469 +0300
 @@ -4066,7 +4066,13 @@
  		<Unit filename="src/cpuregistersdlg.h">
  			<Option target="src" />
@@ -18,7 +18,7 @@ diff -ruN codeblocks-20.03/src/CodeBlocks.cbp codeblocks-20.03-new/src/CodeBlock
  		<Unit filename="src/crashhandler.h">
 diff -ruN codeblocks-20.03/src/CodeBlocks-unix.cbp codeblocks-20.03-new/src/CodeBlocks-unix.cbp
 --- codeblocks-20.03/src/CodeBlocks-unix.cbp	2020-03-28 15:36:05.000000000 +0300
-+++ codeblocks-20.03-new/src/CodeBlocks-unix.cbp	2021-02-03 12:07:44.390130429 +0300
++++ codeblocks-20.03-new/src/CodeBlocks-unix.cbp	2021-02-20 13:03:45.448921505 +0300
 @@ -3845,7 +3845,13 @@
  		<Unit filename="src/cpuregistersdlg.h">
  			<Option target="src" />
@@ -36,7 +36,7 @@ diff -ruN codeblocks-20.03/src/CodeBlocks-unix.cbp codeblocks-20.03-new/src/Code
  		<Unit filename="src/crashhandler.h">
 diff -ruN codeblocks-20.03/src/CodeBlocks_wx31_64.cbp codeblocks-20.03-new/src/CodeBlocks_wx31_64.cbp
 --- codeblocks-20.03/src/CodeBlocks_wx31_64.cbp	2020-03-28 15:36:05.000000000 +0300
-+++ codeblocks-20.03-new/src/CodeBlocks_wx31_64.cbp	2021-02-03 12:07:44.394130468 +0300
++++ codeblocks-20.03-new/src/CodeBlocks_wx31_64.cbp	2021-02-20 13:03:45.448921505 +0300
 @@ -4023,6 +4023,12 @@
  		<Unit filename="src/cpuregistersdlg.h">
  			<Option target="src" />
@@ -52,7 +52,7 @@ diff -ruN codeblocks-20.03/src/CodeBlocks_wx31_64.cbp codeblocks-20.03-new/src/C
  		</Unit>
 diff -ruN codeblocks-20.03/src/CodeBlocks_wx31.cbp codeblocks-20.03-new/src/CodeBlocks_wx31.cbp
 --- codeblocks-20.03/src/CodeBlocks_wx31.cbp	2020-03-28 15:36:05.000000000 +0300
-+++ codeblocks-20.03-new/src/CodeBlocks_wx31.cbp	2021-02-03 12:07:44.394130468 +0300
++++ codeblocks-20.03-new/src/CodeBlocks_wx31.cbp	2021-02-20 13:03:45.452921541 +0300
 @@ -4024,6 +4024,12 @@
  		<Unit filename="src/cpuregistersdlg.h">
  			<Option target="src" />
@@ -68,7 +68,7 @@ diff -ruN codeblocks-20.03/src/CodeBlocks_wx31.cbp codeblocks-20.03-new/src/Code
  		</Unit>
 diff -ruN codeblocks-20.03/src/src/cpuregistersdlg.cpp codeblocks-20.03-new/src/src/cpuregistersdlg.cpp
 --- codeblocks-20.03/src/src/cpuregistersdlg.cpp	2020-03-28 15:36:04.000000000 +0300
-+++ codeblocks-20.03-new/src/src/cpuregistersdlg.cpp	2021-02-03 12:09:53.859397028 +0300
++++ codeblocks-20.03-new/src/src/cpuregistersdlg.cpp	2021-02-20 13:05:41.077956043 +0300
 @@ -13,6 +13,52 @@
  #include <wx/intl.h>
  #include <wx/sizer.h>
@@ -251,7 +251,7 @@ diff -ruN codeblocks-20.03/src/src/cpuregistersdlg.cpp codeblocks-20.03-new/src/
      {
          m_pList->SetColumnWidth(i, autoSizeMode);
      }
-@@ -83,4 +204,38 @@
+@@ -83,4 +204,46 @@
  void CPURegistersDlg::EnableWindow(bool enable)
  {
      m_pList->Enable(enable);
@@ -270,29 +270,37 @@ diff -ruN codeblocks-20.03/src/src/cpuregistersdlg.cpp codeblocks-20.03-new/src/
 +if ( cyrcomp == AVR || cyrcomp == ARM )
 +{
 +      unsigned snum;
++      wxString test;
 +      if (cyrcomp == AVR)
++      {
 +          snum = 8;
++          test = "sp pc2";
++      }
 +      else
++      {
 +          snum = 32;
++          test = "sp pc2 lr msp psp";
++      }
 +
-+    long itemIndex = -1;
++      long itemIndex = -1;
 +
 +      while ((itemIndex = m_pList->GetNextItem(itemIndex,
 +          wxLIST_NEXT_ALL, wxLIST_STATE_SELECTED)) != wxNOT_FOUND)
-+     {
-+		if ( (m_pList->GetItemText(itemIndex).GetChar(0) == 'r') || (m_pList->GetItemText(itemIndex).Lower().Contains(_("sreg")))  )
-+		{
-+			wxDialog * dconv;
-+			dconv = new RegisterDlg(this, snum, m_pList->GetItemText(itemIndex), m_pList->GetItemText(itemIndex, 1));
-+			dconv->ShowModal();
-+			dconv->Destroy();
-+		}
-+     }
++                           break;
++
++      if (!test.Contains(m_pList->GetItemText(itemIndex).Lower()))
++	{
++        	wxDialog * dconv;
++		dconv = new RegisterDlg(this, snum, m_pList->GetItemText(itemIndex), m_pList->GetItemText(itemIndex, 1));
++		dconv->ShowModal();
++		dconv->Destroy();
++	}
++
 +}
  }
 diff -ruN codeblocks-20.03/src/src/cpuregistersdlg.h codeblocks-20.03-new/src/src/cpuregistersdlg.h
 --- codeblocks-20.03/src/src/cpuregistersdlg.h	2020-03-28 15:36:04.000000000 +0300
-+++ codeblocks-20.03-new/src/src/cpuregistersdlg.h	2021-01-12 22:06:18.000000000 +0300
++++ codeblocks-20.03-new/src/src/cpuregistersdlg.h	2021-02-20 13:03:45.452921541 +0300
 @@ -9,6 +9,7 @@
  #include <wx/panel.h>
  #include <cbdebugger_interfaces.h>
@@ -324,7 +332,7 @@ diff -ruN codeblocks-20.03/src/src/cpuregistersdlg.h codeblocks-20.03-new/src/sr
  
 diff -ruN codeblocks-20.03/src/src/Makefile.am codeblocks-20.03-new/src/src/Makefile.am
 --- codeblocks-20.03/src/src/Makefile.am	2020-03-28 15:36:04.000000000 +0300
-+++ codeblocks-20.03-new/src/src/Makefile.am	2021-02-03 12:07:44.394130468 +0300
++++ codeblocks-20.03-new/src/src/Makefile.am	2021-02-20 13:03:45.452921541 +0300
 @@ -42,6 +42,7 @@
  			breakpointsdlg.cpp \
  			compilersettingsdlg.cpp \
@@ -343,7 +351,7 @@ diff -ruN codeblocks-20.03/src/src/Makefile.am codeblocks-20.03-new/src/src/Make
  			debuggermenu.h \
 diff -ruN codeblocks-20.03/src/src/RegisterDlg.cpp codeblocks-20.03-new/src/src/RegisterDlg.cpp
 --- codeblocks-20.03/src/src/RegisterDlg.cpp	1970-01-01 03:00:00.000000000 +0300
-+++ codeblocks-20.03-new/src/src/RegisterDlg.cpp	2021-02-03 12:07:44.398130509 +0300
++++ codeblocks-20.03-new/src/src/RegisterDlg.cpp	2021-02-20 13:03:45.452921541 +0300
 @@ -0,0 +1,223 @@
 +#include "RegisterDlg.h"
 +
@@ -570,7 +578,7 @@ diff -ruN codeblocks-20.03/src/src/RegisterDlg.cpp codeblocks-20.03-new/src/src/
 +}
 diff -ruN codeblocks-20.03/src/src/RegisterDlg.h codeblocks-20.03-new/src/src/RegisterDlg.h
 --- codeblocks-20.03/src/src/RegisterDlg.h	1970-01-01 03:00:00.000000000 +0300
-+++ codeblocks-20.03-new/src/src/RegisterDlg.h	2021-02-03 12:07:44.398130509 +0300
++++ codeblocks-20.03-new/src/src/RegisterDlg.h	2021-02-20 13:03:45.452921541 +0300
 @@ -0,0 +1,65 @@
 +#ifndef REGISTERDLG_H
 +#define REGISTERDLG_H
@@ -639,7 +647,7 @@ diff -ruN codeblocks-20.03/src/src/RegisterDlg.h codeblocks-20.03-new/src/src/Re
 +#endif
 diff -ruN codeblocks-20.03/src/src/resources/RegisterDlg.xrc codeblocks-20.03-new/src/src/resources/RegisterDlg.xrc
 --- codeblocks-20.03/src/src/resources/RegisterDlg.xrc	1970-01-01 03:00:00.000000000 +0300
-+++ codeblocks-20.03-new/src/src/resources/RegisterDlg.xrc	2021-02-03 12:07:44.398130509 +0300
++++ codeblocks-20.03-new/src/src/resources/RegisterDlg.xrc	2021-02-20 13:03:45.452921541 +0300
 @@ -0,0 +1,171 @@
 +<?xml version="1.0" encoding="utf-8" ?>
 +<resource xmlns="http://www.wxwidgets.org/wxxrc" version="2.5.3.0">
