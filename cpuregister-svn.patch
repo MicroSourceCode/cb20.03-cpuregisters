@@ -1,0 +1,933 @@
+diff -ruN ./trunk/src/CodeBlocks_wx30-unix.cbp ./trunk-mod/src/CodeBlocks_wx30-unix.cbp
+--- ./trunk/src/CodeBlocks_wx30-unix.cbp	2021-02-18 13:48:28.000000000 +0300
++++ ./trunk-mod/src/CodeBlocks_wx30-unix.cbp	2021-02-20 11:28:19.687389821 +0300
+@@ -3805,6 +3805,12 @@
+ 		<Unit filename="src/cpuregistersdlg.h">
+ 			<Option target="src" />
+ 		</Unit>
++                <Unit filename="src/RegisterDlg.cpp">
++			<Option target="src" />
++		</Unit>
++		<Unit filename="src/RegisterDlg.h">
++			<Option target="src" />
++		</Unit>
+ 		<Unit filename="src/crashhandler.cpp">
+ 			<Option target="src" />
+ 		</Unit>
+diff -ruN ./trunk/src/CodeBlocks_wx31_64.cbp ./trunk-mod/src/CodeBlocks_wx31_64.cbp
+--- ./trunk/src/CodeBlocks_wx31_64.cbp	2021-02-18 13:48:28.000000000 +0300
++++ ./trunk-mod/src/CodeBlocks_wx31_64.cbp	2021-02-20 10:28:33.290993855 +0300
+@@ -4011,6 +4011,12 @@
+ 		<Unit filename="src/cpuregistersdlg.h">
+ 			<Option target="src" />
+ 		</Unit>
++                <Unit filename="src/RegisterDlg.cpp">
++			<Option target="src" />
++		</Unit>
++		<Unit filename="src/RegisterDlg.h">
++			<Option target="src" />
++		</Unit>
+ 		<Unit filename="src/crashhandler.cpp">
+ 			<Option target="src" />
+ 		</Unit>
+diff -ruN ./trunk/src/CodeBlocks_wx31.cbp ./trunk-mod/src/CodeBlocks_wx31.cbp
+--- ./trunk/src/CodeBlocks_wx31.cbp	2021-02-18 13:48:28.000000000 +0300
++++ ./trunk-mod/src/CodeBlocks_wx31.cbp	2021-02-20 10:28:33.294993874 +0300
+@@ -4012,6 +4012,12 @@
+ 		<Unit filename="src/cpuregistersdlg.h">
+ 			<Option target="src" />
+ 		</Unit>
++                <Unit filename="src/RegisterDlg.cpp">
++			<Option target="src" />
++		</Unit>
++		<Unit filename="src/RegisterDlg.h">
++			<Option target="src" />
++		</Unit>
+ 		<Unit filename="src/crashhandler.cpp">
+ 			<Option target="src" />
+ 		</Unit>
+diff -ruN ./trunk/src/include/cbdebugger_interfaces.h ./trunk-mod/src/include/cbdebugger_interfaces.h
+--- ./trunk/src/include/cbdebugger_interfaces.h	2021-02-18 13:48:28.000000000 +0300
++++ ./trunk-mod/src/include/cbdebugger_interfaces.h	2021-02-20 11:24:37.258868778 +0300
+@@ -50,6 +50,7 @@
+         virtual wxWindow* GetWindow() = 0;
+ 
+         virtual void Clear() = 0;
++        virtual void GetCompiler() = 0;
+         virtual void SetRegisterValue(const wxString& reg_name, const wxString& hexValue, const wxString& interpreted) = 0;
+         virtual void EnableWindow(bool enable) = 0;
+ };
+diff -ruN ./trunk/src/src/cpuregistersdlg.cpp ./trunk-mod/src/src/cpuregistersdlg.cpp
+--- ./trunk/src/src/cpuregistersdlg.cpp	2021-02-18 13:48:23.000000000 +0300
++++ ./trunk-mod/src/src/cpuregistersdlg.cpp	2021-02-20 11:33:49.924433252 +0300
+@@ -13,6 +13,52 @@
+ #include <wx/intl.h>
+ #include <wx/sizer.h>
+ #include <wx/listctrl.h>
++#include <stdlib.h>
++#include <stdio.h>
++#include "RegisterDlg.h"
++#include <sdk.h>
++
++//include <iostream>
++//#include <sstream>
++//#include <bitset>
++//#include <string>
++
++#include "compiler.h"
++#include "compilerfactory.h"
++#include <cbexception.h>
++#include <configmanager.h>
++#include <manager.h>
++#include <projectmanager.h>
++
++#include "debuggermanager.h"
++#include "cbdebugger_interfaces.h"
++#include "cbeditor.h"
++#include "cbplugin.h"
++#include "cbproject.h"
++#include "editormanager.h"
++
++void dec2bin(char * str, int convnum, unsigned base) //or bitset alternative...
++{
++	int convertedNumber[base];
++	int i, p;
++
++	for (int i = 0; i < base; i++)
++	{
++		convertedNumber[i] = convnum % 2;
++		convnum = convnum / 2;
++	}
++
++	for (i = base - 1, p = 0; i >= 0; i--, p++)
++	{
++		if (convertedNumber[i])
++			str[p] = '1';
++		else
++			str[p] = '0';
++	}
++}
++
++const long CPURegistersDlg::ID_LISTCTRL1 = wxNewId();
++bool getifcomp = false;
+ 
+ BEGIN_EVENT_TABLE(CPURegistersDlg, wxPanel)
+ //    EVT_BUTTON(XRCID("btnRefresh"), CPURegistersDlg::OnRefresh)
+@@ -21,26 +67,73 @@
+ CPURegistersDlg::CPURegistersDlg(wxWindow* parent) :
+     wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize)
+ {
++    //    SetFont(wxFont(14, wxMODERN, wxNORMAL, wxNORMAL, false));
+     wxBoxSizer* sizer = new wxBoxSizer(wxVERTICAL);
+-    m_pList = new wxListCtrl(this, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxLC_REPORT | wxLC_SINGLE_SEL);
++    m_pList = new wxListCtrl(this, ID_LISTCTRL1, wxDefaultPosition, wxDefaultSize, wxLC_REPORT | wxLC_SINGLE_SEL, wxDefaultValidator, _T("ID_LISTCTRL1"));
+     sizer->Add(m_pList, 1, wxGROW);
+     SetSizer(sizer);
+     Layout();
+ 
+     wxFont font(8, wxFONTFAMILY_MODERN, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL);
+     m_pList->SetFont(font);
++    Connect(ID_LISTCTRL1,wxEVT_COMMAND_LIST_ITEM_ACTIVATED,(wxObjectEventFunction)&CPURegistersDlg::OnListCtrl1ItemActivated);
+ 
+     Clear();
+ }
+ 
++void CPURegistersDlg::GetCompiler()
++{
++	int compind = 0;
++        wxString strS = "";
++        ProjectManager* projectMgr = Manager::Get()->GetProjectManager();
++        cbProject* project = projectMgr->GetActiveProject();
++        ProjectBuildTarget *target = nullptr;
++        if (project)
++        {
++            const wxString &targetName = project->GetActiveBuildTarget();
++            if (project->BuildTargetValid(targetName))
++                target = project->GetBuildTarget(targetName);
++        }
++
++        if (!target)
++        {
++            if (project)
++            {
++              compind = CompilerFactory::GetCompilerIndex(project->GetCompilerID());
++	      strS = CompilerFactory::GetCompiler(compind)->GetName();
++	    }
++	}
++	else
++	{
++	    compind = CompilerFactory::GetCompilerIndex(target->GetCompilerID());
++	    strS = CompilerFactory::GetCompiler(compind)->GetName();
++	}
++	if ( strS.Lower().Contains(_("avr")) )
++	    cyrcomp = AVR;
++	else if ( strS.Lower().Contains(_("arm")) )
++	        cyrcomp = ARM;
++	else
++	    cyrcomp = PC;
++}
++
++
+ void CPURegistersDlg::Clear()
+ {
++    //DeleteAllColumns();
++    m_pList->DeleteAllColumns();
+     m_pList->ClearAll();
+     m_pList->Freeze();
+     m_pList->DeleteAllItems();
+-    m_pList->InsertColumn(0, _("Register"), wxLIST_FORMAT_LEFT);
++    m_pList->InsertColumn(0, _("Rg"), wxLIST_FORMAT_LEFT);
+     m_pList->InsertColumn(1, _("Hex"), wxLIST_FORMAT_RIGHT);
+     m_pList->InsertColumn(2, _("Interpreted"), wxLIST_FORMAT_LEFT);
++    if (( cyrcomp == AVR ) || ( cyrcomp == ARM )) //avr or arm
++    {
++        m_pList->DeleteColumn(2);
++	m_pList->InsertColumn(2, _("Bin"), wxLIST_FORMAT_LEFT);
++	m_pList->InsertColumn(3, _("Interpreted"), wxLIST_FORMAT_LEFT);
++    }
++
+     m_pList->Thaw();
+ }
+ 
+@@ -56,6 +149,16 @@
+ 
+ void CPURegistersDlg::SetRegisterValue(const wxString& reg_name, const wxString& hexValue, const wxString& interpreted)
+ {
++
++    if (getifcomp)   //or timer?
++    {
++	GetCompiler();
++	Clear();
++	getifcomp = false;
++    }
++
++     int i2;
++
+     // find existing register
+     int idx = RegisterIndex(reg_name);
+     if (idx == -1)
+@@ -66,7 +169,25 @@
+     }
+ 
+     m_pList->SetItem(idx, 1, hexValue);
+-    m_pList->SetItem(idx, 2, interpreted);
++
++    if (cyrcomp == AVR)
++    {
++		char buf[8];
++		if (reg_name.Lower().Contains(_("pc")) || reg_name.Lower().Contains(_("sp")) )
++			 for (int i = 0; i < 8; i++)
++				 buf[i] = '-';
++		else
++			dec2bin(buf, wxAtoi(interpreted), 8);
++		buf[8] = '\0';
++		m_pList->SetItem(idx, 2, wxString(buf));
++		m_pList->SetItem(idx, 3, interpreted);
++		i2 = 4;
++    }
++    else
++    {
++		m_pList->SetItem(idx, 2, interpreted);
++		i2 = 3;
++    }
+ 
+ #if defined(__WXMSW__) || wxCHECK_VERSION(3, 1, 0)
+     const int autoSizeMode = wxLIST_AUTOSIZE_USEHEADER;
+@@ -74,7 +195,7 @@
+     const int autoSizeMode = wxLIST_AUTOSIZE;
+ #endif
+ 
+-    for (int i = 0; i < 3; ++i)
++    for (int i = 0; i < i2; ++i)
+     {
+         m_pList->SetColumnWidth(i, autoSizeMode);
+     }
+@@ -83,4 +204,47 @@
+ void CPURegistersDlg::EnableWindow(bool enable)
+ {
+     m_pList->Enable(enable);
++    if (enable)
++    {
++        getifcomp = true;
++//	GetCompiler();
++//	Clear();
++    }
++}
++
++
++void CPURegistersDlg::OnListCtrl1ItemActivated(wxListEvent& event)
++{
++
++if ( cyrcomp == AVR || cyrcomp == ARM )
++{
++      unsigned snum;
++      wxString test;
++      if (cyrcomp == AVR)
++      {
++          snum = 8;
++          test = "sp pc2";
++      }
++      else
++      {
++          snum = 32;
++          test = "sp pc2 lr msp psp";
++      }
++
++      long itemIndex = -1;
++
++      while ((itemIndex = m_pList->GetNextItem(itemIndex,
++          wxLIST_NEXT_ALL, wxLIST_STATE_SELECTED)) != wxNOT_FOUND)
++                           break;
++
++      if (!test.Contains(m_pList->GetItemText(itemIndex).Lower()))
++	{
++        	wxDialog * dconv;
++		dconv = new RegisterDlg(this, snum, m_pList->GetItemText(itemIndex), m_pList->GetItemText(itemIndex, 1));
++		dconv->ShowModal();
++		dconv->Destroy();
++	}
++
+ }
++}
++
+diff -ruN ./trunk/src/src/cpuregistersdlg.h ./trunk-mod/src/src/cpuregistersdlg.h
+--- ./trunk/src/src/cpuregistersdlg.h	2021-02-18 13:48:23.000000000 +0300
++++ ./trunk-mod/src/src/cpuregistersdlg.h	2021-02-20 11:25:18.859808450 +0300
+@@ -9,6 +9,7 @@
+ #include <wx/panel.h>
+ #include <cbdebugger_interfaces.h>
+ 
++enum CYRCOMPILER { AVR, ARM, PC };
+ class wxListCtrl;
+ 
+ class CPURegistersDlg : public wxPanel, public cbCPURegistersDlg
+@@ -19,6 +20,7 @@
+         wxWindow* GetWindow() override { return this; }
+ 
+         void Clear() override;
++        void GetCompiler() override;
+         void SetRegisterValue(const wxString& reg_name, const wxString& hexValue,
+                               const wxString& interpreted) override;
+         void EnableWindow(bool enable) override;
+@@ -27,8 +29,12 @@
+         void OnRefresh(wxCommandEvent& event);
+ 
+     private:
++        void OnListCtrl1ItemActivated(wxListEvent& event);
+         DECLARE_EVENT_TABLE();
+     private:
++	CYRCOMPILER cyrcomp = PC;
++	bool tprocessor = false;
++        static const long ID_LISTCTRL1;
+         wxListCtrl* m_pList;
+ };
+ 
+diff -ruN ./trunk/src/src/Makefile.am ./trunk-mod/src/src/Makefile.am
+--- ./trunk/src/src/Makefile.am	2021-02-18 13:48:23.000000000 +0300
++++ ./trunk-mod/src/src/Makefile.am	2021-02-20 10:28:33.358994166 +0300
+@@ -35,6 +35,7 @@
+ 			breakpointsdlg.cpp \
+ 			compilersettingsdlg.cpp \
+ 			cpuregistersdlg.cpp \
++                        RegisterDlg.cpp \
+ 			crashhandler.cpp \
+ 			debugger_interface_creator.cpp \
+ 			debuggermenu.cpp \
+@@ -74,6 +75,7 @@
+ 			breakpointsdlg.h \
+ 			compilersettingsdlg.h \
+ 			cpuregistersdlg.h \
++                        RegisterDlg.h \
+ 			crashhandler.h \
+ 			debugger_interface_creator.h \
+ 			debuggermenu.h \
+diff -ruN ./trunk/src/src/Makefile.am.orig ./trunk-mod/src/src/Makefile.am.orig
+--- ./trunk/src/src/Makefile.am.orig	1970-01-01 03:00:00.000000000 +0300
++++ ./trunk-mod/src/src/Makefile.am.orig	2021-02-18 13:48:23.721304333 +0300
+@@ -0,0 +1,115 @@
++SUBDIRS = resources
++
++AM_CPPFLAGS = $(WX_CXXFLAGS) \
++			$(CB_SQUIRREL_CFLAGS) \
++			-I$(top_srcdir)/src/sdk/wxscintilla/include \
++			-I$(top_srcdir)/src/include \
++			-I$(top_srcdir)/src/include/scripting/sqplus
++
++if GTK_NOTEBOOK
++GTK_NOTEBOOK_FLAGS = -DUSE_GTK_NOTEBOOK
++endif
++
++if CODEBLOCKS_LINUX
++AM_CPPFLAGS += -DENABLE_BINRELOC -DAPP_PREFIX="\"@prefix@\"" $(WX_GTK_CFLAGS) $(GTK_NOTEBOOK_FLAGS)
++endif
++
++bin_PROGRAMS = codeblocks
++
++# wxMac resource fork/unbundled app
++install-exec-hook:
++	$(POSTLINK_COMMAND) $(DESTDIR)$(bindir)/codeblocks$(EXEEXT) \
++	                    $(srcdir)/resources/icons/app.r
++	$(MACSETFILE) -a C $(DESTDIR)$(bindir)/codeblocks$(EXEEXT)
++
++# wxAUI uses GTK+ libraries on wxGTK
++# codeblocks_LDFLAGS = $(WX_GTK_LIBS)
++
++codeblocks_LDADD =  ../sdk/libcodeblocks.la \
++			$(WX_LIBS) \
++			$(WX_GTK_LIBS)
++
++codeblocks_SOURCES = app.cpp \
++			appglobals.cpp \
++			backtracedlg.cpp \
++			breakpointsdlg.cpp \
++			compilersettingsdlg.cpp \
++			cpuregistersdlg.cpp \
++			crashhandler.cpp \
++			debugger_interface_creator.cpp \
++			debuggermenu.cpp \
++			debuggersettingscommonpanel.cpp \
++			debuggersettingsdlg.cpp \
++			debuggersettingspanel.cpp \
++			disassemblydlg.cpp \
++			dlgabout.cpp \
++			dlgaboutplugin.cpp \
++			editkeywordsdlg.cpp \
++			editorconfigurationdlg.cpp \
++			environmentsettingsdlg.cpp \
++			examinememorydlg.cpp \
++			find_replace.cpp \
++			goto_file.cpp \
++			infopane.cpp \
++			main.cpp \
++			notebookstyles.cpp \
++			printdlg.cpp \
++			projectmanagerui.cpp \
++			projectdepsdlg.cpp \
++			projectoptionsdlg.cpp \
++			recentitemslist.cpp \
++			scriptconsole.cpp \
++			scriptingsettingsdlg.cpp \
++			splashscreen.cpp \
++			startherepage.cpp \
++			switcherdlg.cpp \
++			threadsdlg.cpp \
++			virtualbuildtargetsdlg.cpp \
++			watchesdlg.cpp
++
++noinst_HEADERS = app.h \
++			appglobals.h \
++			backtracedlg.h \
++			batchbuild.h \
++			breakpointsdlg.h \
++			compilersettingsdlg.h \
++			cpuregistersdlg.h \
++			crashhandler.h \
++			debugger_interface_creator.h \
++			debuggermenu.h \
++			debuggersettingscommonpanel.h \
++			debuggersettingsdlg.h \
++			debuggersettingspanel.h \
++			disassemblydlg.h \
++			dlgabout.h \
++			dlgaboutplugin.h \
++			editkeywordsdlg.h \
++			editorconfigurationdlg.h \
++			environmentsettingsdlg.h \
++			examinememorydlg.h \
++			find_replace.h \
++			goto_file.h \
++			infopane.h \
++			main.h \
++			notebookstyles.h \
++			printdlg.h \
++			projectmanagerui.h \
++			projectdepsdlg.h \
++			projectoptionsdlg.h \
++			recentitemslist.h \
++			scriptconsole.h \
++			scriptingsettingsdlg.h \
++			splashscreen.h \
++			startherepage.h \
++			switcherdlg.h \
++			threadsdlg.h \
++			virtualbuildtargetsdlg.h \
++			watchesdlg.h
++
++man_MANS = codeblocks.1
++
++EXTRA_DIST = associations.cpp \
++			associations.h \
++			ipc.h \
++			ipc.cpp \
++			$(man_MANS)
+diff -ruN ./trunk/src/src/RegisterDlg.cpp ./trunk-mod/src/src/RegisterDlg.cpp
+--- ./trunk/src/src/RegisterDlg.cpp	1970-01-01 03:00:00.000000000 +0300
++++ ./trunk-mod/src/src/RegisterDlg.cpp	2021-02-20 10:28:33.358994166 +0300
+@@ -0,0 +1,223 @@
++#include "RegisterDlg.h"
++
++#include <iostream>
++#include <sstream>
++#include <bitset>
++#include <string>
++
++//(*InternalHeaders(RegisterDlg)
++#include <wx/xrc/xmlres.h>
++//*)
++
++//(*IdInit(RegisterDlg)
++//*)
++
++#include "debuggermanager.h"
++#include "cbdebugger_interfaces.h"
++//#include "loggers.h"
++#include "manager.h"
++#include "cbexception.h"
++#include "cbplugin.h"
++#include "cbproject.h"
++//#include "compilerfactory.h"
++//#include "configmanager.h"
++//#include "projectmanager.h"
++
++
++
++
++BEGIN_EVENT_TABLE(RegisterDlg,wxDialog)
++	//(*EventTable(RegisterDlg)
++	//*)
++END_EVENT_TABLE()
++
++
++
++RegisterDlg::RegisterDlg(wxWindow* parent, unsigned numbase, wxString namereg, wxString valreg) : m_valreg(valreg), m_namereg(namereg), m_numbase(numbase)
++{
++	//(*Initialize(RegisterDlg)
++	wxXmlResource::Get()->LoadObject(this,parent,_T("RegisterDlg"),_T("wxDialog"));
++	TextRg = (wxStaticText*)FindWindow(XRCID("ID_STATICTEXT1"));
++	TextRgVal = (wxStaticText*)FindWindow(XRCID("ID_STATICTEXT2"));
++	RadioBox1 = (wxRadioBox*)FindWindow(XRCID("ID_RADIOBOX1"));
++	Pan1 = (wxPanel*)FindWindow(XRCID("ID_P7"));
++	Pan2 = (wxPanel*)FindWindow(XRCID("ID_P6"));
++	Pan3 = (wxPanel*)FindWindow(XRCID("ID_P5"));
++	Pan4 = (wxPanel*)FindWindow(XRCID("ID_P4"));
++	Pan5 = (wxPanel*)FindWindow(XRCID("ID_P3"));
++	Pan6 = (wxPanel*)FindWindow(XRCID("ID_P2"));
++	Pan7 = (wxPanel*)FindWindow(XRCID("ID_P1"));
++	Pan8 = (wxPanel*)FindWindow(XRCID("ID_P0"));
++	Panel2 = (wxPanel*)FindWindow(XRCID("ID_PANEL2"));
++	TextCtrl1 = (wxTextCtrl*)FindWindow(XRCID("ID_TEXTCTRL1"));
++	Button1 = (wxButton*)FindWindow(XRCID("wxID_CANCEL"));
++	Button2 = (wxButton*)FindWindow(XRCID("wxID_OK"));
++	Panel1 = (wxPanel*)FindWindow(XRCID("ID_PANEL1"));
++
++	Connect(XRCID("ID_RADIOBOX1"),wxEVT_COMMAND_RADIOBOX_SELECTED,(wxObjectEventFunction)&RegisterDlg::OnRadioBoxConv);
++	Pan1->Connect(wxEVT_LEFT_DOWN,(wxObjectEventFunction)&RegisterDlg::OnCheckPanRight,0,this);
++	Pan2->Connect(wxEVT_LEFT_DOWN,(wxObjectEventFunction)&RegisterDlg::OnCheckPanRight,0,this);
++	Pan3->Connect(wxEVT_LEFT_DOWN,(wxObjectEventFunction)&RegisterDlg::OnCheckPanRight,0,this);
++	Pan4->Connect(wxEVT_LEFT_DOWN,(wxObjectEventFunction)&RegisterDlg::OnCheckPanRight,0,this);
++	Pan5->Connect(wxEVT_LEFT_DOWN,(wxObjectEventFunction)&RegisterDlg::OnCheckPanRight,0,this);
++	Pan6->Connect(wxEVT_LEFT_DOWN,(wxObjectEventFunction)&RegisterDlg::OnCheckPanRight,0,this);
++	Pan7->Connect(wxEVT_LEFT_DOWN,(wxObjectEventFunction)&RegisterDlg::OnCheckPanRight,0,this);
++	Pan8->Connect(wxEVT_LEFT_DOWN,(wxObjectEventFunction)&RegisterDlg::OnCheckPanRight,0,this);
++	Connect(XRCID("wxID_CANCEL"),wxEVT_COMMAND_BUTTON_CLICKED,(wxObjectEventFunction)&RegisterDlg::OnButton1Click);
++	Connect(XRCID("wxID_OK"),wxEVT_COMMAND_BUTTON_CLICKED,(wxObjectEventFunction)&RegisterDlg::OnButton2Click);
++	//*)
++
++	TextRg->SetLabelText("Register: " + namereg);
++	TextRgVal->SetLabelText("Hex: " + valreg);
++
++	BitRgControls[0] = Pan8;BitRgControls[1] = Pan7;BitRgControls[2] = Pan6;BitRgControls[3] = Pan5;
++	BitRgControls[4] = Pan4;BitRgControls[5] = Pan3;BitRgControls[6] = Pan2;BitRgControls[7] = Pan1;
++
++    std::stringstream ss;
++    ss << std::hex << valreg.c_str();
++    ss >> decValue;
++    binDecValue = decValue;
++
++	Panel2->Enable(false);
++
++	if (numbase > 8)
++    {
++        RadioBox1->Enable(2, false);
++    }
++    else
++    {
++        int sz1, sz2, sz3;
++        Button2->GetSize(&sz1, &sz3);
++        this->GetSize(&sz1, &sz2);
++        sz2 += sz3;
++        this->SetMinSize(wxSize(sz1, sz2));
++        Panel2->Show(true);
++         bsetrg();
++    }
++
++}
++
++RegisterDlg::~RegisterDlg()
++{
++	//(*Destroy(RegisterDlg)
++	//*)
++}
++
++
++void RegisterDlg::OnRadioBoxConv(wxCommandEvent& event)
++{
++    TextCtrl1->Clear();
++    binDecValue = decValue;
++    if (m_numbase == 8)
++        bsetrg();
++   switch (RadioBox1->GetSelection())
++   {
++       case 0:
++           m_prefixstr = "0x"; //hex
++           m_dformat = HEX;
++           TextRgVal->SetLabelText("Hex: " + m_valreg);
++           Panel2->Enable(false);
++           TextCtrl1->Enable(true);
++           break;
++       case 1:
++           m_prefixstr = ""; //dec
++           m_dformat = DEC;
++           TextRgVal->SetLabelText("Dec: " + wxString::Format(wxT("%ld"),decValue));
++           Panel2->Enable(false);
++           TextCtrl1->Enable(true);
++           break;
++       case 2:
++           m_prefixstr = "0b"; //bin
++           m_dformat = BIN;
++           std::bitset<8> b(decValue);
++           TextRgVal->SetLabelText("Bin: " + b.to_string());
++           Panel2->Enable(true);
++           *TextCtrl1 << b.to_string();
++           TextCtrl1->Enable(false);
++           break;
++
++   }
++}
++
++void RegisterDlg::OnButton1Click(wxCommandEvent& event)
++{
++    EndModal(wxID_CANCEL);
++}
++
++void RegisterDlg::OnButton2Click(wxCommandEvent& event)
++{
++    bool ENDREG = false;
++    wxString stresult = TextCtrl1->GetLineText(0);
++    if (stresult == "")
++        return;
++    switch (m_dformat)
++    {
++    case HEX:
++        {
++            unsigned n;
++            std::stringstream ss;
++            ss << std::hex << stresult.c_str();
++            ss >> n;
++            if ((m_numbase == 8 && n <= 255 && n >= 0) || (m_numbase == 32 && n <= 4294967295 && n >= 0))
++              ENDREG = true;
++            break;
++        }
++
++    case DEC:
++        {
++           if  ((m_numbase == 8 && wxAtoi(stresult) <= 255 && wxAtoi(stresult) >= 0) ||
++                (m_numbase == 32 && wxAtoi(stresult) <= 4294967295 && wxAtoi(stresult) >= 0))
++              ENDREG = true;
++            break;
++        }
++    case BIN:
++        {
++	    if (binDecValue == decValue)
++	    	ENDREG = false;
++	    else
++		ENDREG = true;
++            break;
++        }
++    }
++
++    if (ENDREG)
++    {
++
++        wxString ex = "set $" + m_namereg + "=" +  m_prefixstr + stresult;
++        cbDebuggerPlugin *plug = Manager::Get()->GetDebuggerManager()->GetActiveDebugger();
++        if (plug)
++        {
++            plug->SendCommand(ex, true);
++		EndModal(wxID_OK);
++        }
++    }
++
++}
++
++void RegisterDlg::OnCheckPanRight(wxMouseEvent& event)
++{
++    wxPanel* temp1 = (wxPanel*)FindWindow(event.GetId());
++    unsigned selectorNum = wxAtoi(temp1->GetName().GetChar(4));
++
++    std::bitset<8> tempRg(binDecValue);
++
++	tempRg.flip(selectorNum);
++	binDecValue = tempRg.to_ulong();
++	bsetrg();
++	TextCtrl1->Clear();
++	*TextCtrl1 << tempRg.to_string();
++}
++
++void RegisterDlg::bsetrg(void)
++{
++    std::bitset<8> tempRg(binDecValue);
++
++	for (unsigned i = 0; i < 8; ++i)
++    {
++         if (tempRg[i])
++            BitRgControls[i]->SetBackgroundColour(*wxBLACK);
++        else
++            BitRgControls[i]->SetBackgroundColour(*wxWHITE);
++    }
++
++}
+diff -ruN ./trunk/src/src/RegisterDlg.h ./trunk-mod/src/src/RegisterDlg.h
+--- ./trunk/src/src/RegisterDlg.h	1970-01-01 03:00:00.000000000 +0300
++++ ./trunk-mod/src/src/RegisterDlg.h	2021-02-20 10:28:33.358994166 +0300
+@@ -0,0 +1,65 @@
++#ifndef REGISTERDLG_H
++#define REGISTERDLG_H
++
++//(*Headers(RegisterDlg)
++#include <wx/button.h>
++#include <wx/dialog.h>
++#include <wx/panel.h>
++#include <wx/radiobox.h>
++#include <wx/stattext.h>
++#include <wx/textctrl.h>
++//*)
++
++enum DFORMAT { HEX, DEC, BIN };
++
++class RegisterDlg: public wxDialog
++{
++	public:
++
++       // RegisterDlg(wxWindow* parent);
++		RegisterDlg(wxWindow* parent, unsigned numbase, wxString namereg, wxString valreg);
++		virtual ~RegisterDlg();
++
++		//(*Declarations(RegisterDlg)
++		wxButton* Button1;
++		wxButton* Button2;
++		wxPanel* Pan1;
++		wxPanel* Pan2;
++		wxPanel* Pan3;
++		wxPanel* Pan4;
++		wxPanel* Pan5;
++		wxPanel* Pan6;
++		wxPanel* Pan7;
++		wxPanel* Pan8;
++		wxPanel* Panel1;
++		wxPanel* Panel2;
++		wxRadioBox* RadioBox1;
++		wxStaticText* TextRg;
++		wxStaticText* TextRgVal;
++		wxTextCtrl* TextCtrl1;
++		//*)
++
++	protected:
++
++		//(*Identifiers(RegisterDlg)
++		//*)
++
++	private:
++	    wxString m_prefixstr = "0x";
++	    wxString m_valreg;
++	    wxString m_namereg;
++	    DFORMAT m_dformat = HEX;
++	    unsigned long decValue, binDecValue, m_numbase;
++	    wxPanel* BitRgControls[8];
++
++		//(*Handlers(RegisterDlg)
++		void OnRadioBoxConv(wxCommandEvent& event);
++		void OnButton1Click(wxCommandEvent& event);
++		void OnButton2Click(wxCommandEvent& event);
++		void OnCheckPanRight(wxMouseEvent& event);
++		//*)
++		void bsetrg(void);
++		DECLARE_EVENT_TABLE()
++};
++
++#endif
+diff -ruN ./trunk/src/src/resources/RegisterDlg.xrc ./trunk-mod/src/src/resources/RegisterDlg.xrc
+--- ./trunk/src/src/resources/RegisterDlg.xrc	1970-01-01 03:00:00.000000000 +0300
++++ ./trunk-mod/src/src/resources/RegisterDlg.xrc	2021-02-04 17:48:06.000000000 +0300
+@@ -0,0 +1,171 @@
++<?xml version="1.0" encoding="utf-8" ?>
++<resource xmlns="http://www.wxwidgets.org/wxxrc" version="2.5.3.0">
++	<object class="wxDialog" name="RegisterDlg">
++		<title>Register</title>
++		<centered>1</centered>
++		<size>252,316</size>
++		<object class="wxBoxSizer">
++			<object class="sizeritem">
++				<object class="wxPanel" name="ID_PANEL1">
++					<pos>0,0</pos>
++					<object class="wxBoxSizer">
++						<orient>wxVERTICAL</orient>
++						<object class="sizeritem">
++							<object class="wxStaticBoxSizer">
++								<label>Current values</label>
++								<orient>wxVERTICAL</orient>
++								<object class="sizeritem">
++									<object class="wxStaticText" name="ID_STATICTEXT1">
++										<label>Register:</label>
++									</object>
++									<flag>wxALL|wxALIGN_LEFT</flag>
++									<border>5</border>
++									<option>1</option>
++								</object>
++								<object class="sizeritem">
++									<object class="wxStaticText" name="ID_STATICTEXT2">
++										<label>Value:</label>
++									</object>
++									<flag>wxALL|wxALIGN_LEFT</flag>
++									<border>5</border>
++									<option>1</option>
++								</object>
++							</object>
++							<flag>wxALL|wxEXPAND</flag>
++							<border>5</border>
++						</object>
++						<object class="sizeritem">
++							<object class="wxRadioBox" name="ID_RADIOBOX1">
++								<label>Formats</label>
++								<content>
++									<item>hex</item>
++									<item>dec</item>
++									<item>bin</item>
++								</content>
++								<default>-1</default>
++								<size>232,75</size>
++							</object>
++							<flag>wxALL|wxEXPAND</flag>
++							<border>5</border>
++						</object>
++						<object class="sizeritem">
++							<object class="wxPanel" name="ID_PANEL2">
++								<hidden>1</hidden>
++								<style>wxBORDER_SUNKEN</style>
++								<object class="wxFlexGridSizer">
++									<cols>8</cols>
++									<vgap>4</vgap>
++									<object class="sizeritem">
++										<object class="wxPanel" name="ID_P7">
++											<size>18,18</size>
++											<style>wxBORDER_SIMPLE</style>
++										</object>
++										<flag>wxALL</flag>
++										<border>5</border>
++										<option>1</option>
++									</object>
++									<object class="sizeritem">
++										<object class="wxPanel" name="ID_P6">
++											<size>18,18</size>
++											<style>wxBORDER_SIMPLE</style>
++										</object>
++										<flag>wxALL|wxFIXED_MINSIZE</flag>
++										<border>5</border>
++										<option>1</option>
++									</object>
++									<object class="sizeritem">
++										<object class="wxPanel" name="ID_P5">
++											<size>18,18</size>
++											<style>wxBORDER_SIMPLE</style>
++										</object>
++										<flag>wxALL|wxFIXED_MINSIZE</flag>
++										<border>5</border>
++										<option>1</option>
++									</object>
++									<object class="sizeritem">
++										<object class="wxPanel" name="ID_P4">
++											<size>18,18</size>
++											<style>wxBORDER_SIMPLE</style>
++										</object>
++										<flag>wxALL|wxFIXED_MINSIZE</flag>
++										<border>5</border>
++										<option>1</option>
++									</object>
++									<object class="sizeritem">
++										<object class="wxPanel" name="ID_P3">
++											<size>18,18</size>
++											<style>wxBORDER_SIMPLE</style>
++										</object>
++										<flag>wxALL|wxFIXED_MINSIZE</flag>
++										<border>5</border>
++										<option>1</option>
++									</object>
++									<object class="sizeritem">
++										<object class="wxPanel" name="ID_P2">
++											<size>18,18</size>
++											<style>wxBORDER_SIMPLE|wxTAB_TRAVERSAL</style>
++										</object>
++										<flag>wxALL|wxFIXED_MINSIZE</flag>
++										<border>5</border>
++										<option>1</option>
++									</object>
++									<object class="sizeritem">
++										<object class="wxPanel" name="ID_P1">
++											<size>18,18</size>
++											<style>wxBORDER_SIMPLE|wxTAB_TRAVERSAL</style>
++										</object>
++										<flag>wxALL|wxFIXED_MINSIZE</flag>
++										<border>5</border>
++										<option>1</option>
++									</object>
++									<object class="sizeritem">
++										<object class="wxPanel" name="ID_P0">
++											<size>18,18</size>
++											<style>wxBORDER_SIMPLE|wxTAB_TRAVERSAL</style>
++										</object>
++										<flag>wxALL|wxFIXED_MINSIZE</flag>
++										<border>5</border>
++										<option>1</option>
++									</object>
++								</object>
++							</object>
++							<flag>wxALL|wxEXPAND</flag>
++							<border>3</border>
++						</object>
++						<object class="sizeritem">
++							<object class="wxTextCtrl" name="ID_TEXTCTRL1" />
++							<flag>wxALL|wxEXPAND</flag>
++							<border>5</border>
++						</object>
++						<object class="sizeritem">
++							<object class="wxBoxSizer">
++								<object class="sizeritem">
++									<object class="wxButton" name="wxID_CANCEL">
++										<label>Cancel</label>
++									</object>
++									<flag>wxALL|wxALIGN_CENTER_HORIZONTAL|wxALIGN_CENTER_VERTICAL</flag>
++									<border>5</border>
++									<option>1</option>
++								</object>
++								<object class="sizeritem">
++									<object class="wxButton" name="wxID_OK">
++										<label>OK</label>
++										<default>1</default>
++									</object>
++									<flag>wxALL|wxALIGN_CENTER_HORIZONTAL|wxALIGN_CENTER_VERTICAL</flag>
++									<border>5</border>
++									<option>1</option>
++								</object>
++							</object>
++							<flag>wxALL|wxALIGN_CENTER_HORIZONTAL|wxALIGN_CENTER_VERTICAL</flag>
++							<border>5</border>
++						</object>
++					</object>
++				</object>
++				<flag>wxALL</flag>
++				<border>5</border>
++				<option>1</option>
++			</object>
++		</object>
++	</object>
++</resource>
